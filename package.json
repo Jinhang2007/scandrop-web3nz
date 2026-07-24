@@ -1,0 +1,17 @@
+{
+  "name": "web3-learning",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && mkdir -p dist/server && cp worker/index.js dist/server/index.js",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.1.1"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
+}
