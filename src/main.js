@@ -250,7 +250,7 @@ app.innerHTML = `
       <label>Campaign name<input name="name" value="Web3NZ AVAX Welcome Drop" required></label>
       <div class="form-row">
         <label>Reward per wallet<div class="input-unit"><span>◆</span><input name="reward" type="number" min="0.001" step="0.001" value="0.01" required><b>AVAX</b></div></label>
-        <label>Contract funding<div class="input-unit"><span>◆</span><input name="budget" type="number" min="0.1" step="0.1" value="1" required><b>AVAX</b></div></label>
+        <label>Contract funding<div class="input-unit"><span>◆</span><input name="budget" type="number" min="0.01" step="0.01" value="1" required><b>AVAX</b></div></label>
       </div>
       <label>Campaign duration<div class="input-unit duration-unit"><span>◷</span><input name="duration" type="number" min="1" step="1" value="30" required><b>DAYS</b></div></label>
       <div class="rule-preview"><span>✓</span><div><strong>One wallet, one reward</strong><p>The RewardCampaign contract rejects every duplicate claim.</p></div></div>
