@@ -122,6 +122,7 @@ async function registerUser(request, env) {
     .bind(user.id, campaignId)
     .first()
 
+  let isNewRegistration = false
   if (!registration) {
     registration = {
       id: crypto.randomUUID(),
@@ -136,6 +137,7 @@ async function registerUser(request, env) {
     )
       .bind(registration.id, user.id, campaignId)
       .run()
+    isNewRegistration = true
   }
 
   return json(
@@ -148,6 +150,7 @@ async function registerUser(request, env) {
         campaignId: registration.campaignId,
         walletAddress: registration.walletAddress,
         claimStatus: registration.claimStatus,
+        isNewRegistration,
       },
     },
     201,

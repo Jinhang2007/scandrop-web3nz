@@ -8,3 +8,13 @@ export function getClaimFlowStep({
   if (!connectedWallet) return 'connect'
   return 'claim'
 }
+
+export function getRegistrationVisualState({
+  registrationOrigin,
+  claimStatus,
+}) {
+  if (claimStatus === 'claimed' || registrationOrigin === 'existing') {
+    return 'existing'
+  }
+  return registrationOrigin === 'new' ? 'success' : 'existing'
+}

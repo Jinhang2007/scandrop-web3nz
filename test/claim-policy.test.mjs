@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getClaimFlowStep } from '../src/claim-policy.js'
+import {
+  getClaimFlowStep,
+  getRegistrationVisualState,
+} from '../src/claim-policy.js'
 
 test('a claimed ScanDrop account stops before wallet connection', () => {
   assert.equal(
@@ -49,5 +52,32 @@ test('new and unclaimed accounts follow the normal registration flow', () => {
       connectedWallet: '0x50f19e7c4dda3f406c37d38ba742712543d34c81',
     }),
     'claim',
+  )
+})
+
+test('a newly created registration uses the green success state', () => {
+  assert.equal(
+    getRegistrationVisualState({
+      registrationOrigin: 'new',
+      claimStatus: 'registered',
+    }),
+    'success',
+  )
+})
+
+test('an existing or claimed registration uses the orange existing state', () => {
+  assert.equal(
+    getRegistrationVisualState({
+      registrationOrigin: 'existing',
+      claimStatus: 'registered',
+    }),
+    'existing',
+  )
+  assert.equal(
+    getRegistrationVisualState({
+      registrationOrigin: 'new',
+      claimStatus: 'claimed',
+    }),
+    'existing',
   )
 })

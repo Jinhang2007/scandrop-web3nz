@@ -35,7 +35,10 @@ import {
   recordRegistrationClaim,
   registerScanDropProfile,
 } from './registration.js'
-import { getClaimFlowStep } from './claim-policy.js'
+import {
+  getClaimFlowStep,
+  getRegistrationVisualState,
+} from './claim-policy.js'
 
 const icons = {
   overview: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>',
@@ -105,6 +108,7 @@ const accountState = {
   walletAddress: savedProfile?.walletAddress || '',
   walletLinked: Boolean(savedProfile?.walletAddress),
   claimStatus: savedProfile?.claimStatus || 'registered',
+  registrationOrigin: savedProfile?.registrationId ? 'existing' : '',
   busy: false,
   error: '',
 }
@@ -552,6 +556,9 @@ async function handleRegistrationSubmit(event) {
     accountState.walletAddress = registration.walletAddress || ''
     accountState.walletLinked = Boolean(registration.walletAddress)
     accountState.claimStatus = registration.claimStatus || 'registered'
+    accountState.registrationOrigin = registration.isNewRegistration
+      ? 'new'
+      : 'existing'
     saveProfile()
   } catch (error) {
     accountState.error = error?.message || 'ScanDrop registration failed.'
@@ -575,6 +582,7 @@ async function changeScanDropProfile() {
     walletAddress: '',
     walletLinked: false,
     claimStatus: 'registered',
+    registrationOrigin: '',
     busy: false,
     error: '',
   })
@@ -636,19 +644,19 @@ function renderClaimExperience() {
 
   if (flowStep === 'complete') {
     content.innerHTML = `
-      <span class="drop-badge success">REWARD STATUS · COMPLETED</span>
-      <div class="profile-orbit complete-profile"><span>✓</span></div>
+      <span class="drop-badge existing">ACCOUNT STATUS · ALREADY REGISTERED</span>
+      <div class="profile-orbit existing-profile"><span>○</span></div>
       <h2>This account has already claimed.</h2>
       <p><strong>${escapeHtml(accountState.email)}</strong> has already received its one reward for this campaign. No wallet connection or transaction is needed.</p>
-      <div class="profile-chip completed-profile-chip">
+      <div class="profile-chip existing-profile-chip">
         <span>SD</span>
         <div><small>ScanDrop account</small><strong>${escapeHtml(accountState.email)}</strong></div>
         <b>Reward used</b>
       </div>
-      <div class="claim-complete-notice">
-        <span>✓</span>
+      <div class="existing-account-notice">
+        <span>○</span>
         <div>
-          <strong>No further action is required</strong>
+          <strong>Existing account recognised</strong>
           <p>ScanDrop has stopped the claim flow to prevent a duplicate reward.</p>
         </div>
       </div>
@@ -663,11 +671,24 @@ function renderClaimExperience() {
   }
 
   if (flowStep === 'connect') {
+    const registrationVisualState = getRegistrationVisualState({
+      registrationOrigin: accountState.registrationOrigin,
+      claimStatus: accountState.claimStatus,
+    })
+    const isNewRegistration = registrationVisualState === 'success'
     content.innerHTML = `
-      <span class="drop-badge">STEP 2 OF 3 · CONNECT WALLET</span>
-      <div class="coin-orbit avax-orbit"><span class="coin avax-coin">A</span><i></i><i></i><i></i></div>
-      <h2>Claim native test AVAX.</h2>
-      <p><strong>${escapeHtml(accountState.email)}</strong> is registered. ${
+      <span class="drop-badge ${isNewRegistration ? 'success' : 'existing'}">${
+        isNewRegistration
+          ? 'REGISTRATION SUCCESS · STEP 1 COMPLETE'
+          : 'ACCOUNT STATUS · ALREADY REGISTERED'
+      }</span>
+      <div class="profile-orbit ${isNewRegistration ? 'registration-success-profile' : 'existing-profile'}">
+        <span>${isNewRegistration ? '✓' : '○'}</span>
+      </div>
+      <h2>${isNewRegistration ? 'Registration complete.' : 'Account already registered.'}</h2>
+      <p><strong>${escapeHtml(accountState.email)}</strong> ${
+        isNewRegistration ? 'was registered successfully.' : 'was registered before.'
+      } ${
         accountState.walletAddress
           ? `Reconnect ${formatAddress(accountState.walletAddress)} to continue.`
           : 'Connect Core mobile and ScanDrop will switch you to Fuji.'
