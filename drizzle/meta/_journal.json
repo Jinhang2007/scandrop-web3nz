@@ -15,6 +15,13 @@
       "when": 1784951715513,
       "tag": "0001_motionless_gressill",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784955367320,
+      "tag": "0002_brown_galactus",
+      "breakpoints": true
     }
   ]
 }

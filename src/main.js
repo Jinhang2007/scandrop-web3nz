@@ -4,16 +4,22 @@ import {
   FUJI_NETWORK,
   REWARD_CAMPAIGN_ADDRESS,
   claimReward,
+  clearRewardCampaignAddress,
   connectWallet,
   contractUrl,
   deployRewardCampaign,
   formatAddress,
+  fundGasSponsor,
   hasInjectedWallet,
   isContractConfigured,
   readCampaign,
   setRewardCampaignAddress,
   transactionUrl,
 } from './web3.js'
+import {
+  calculateGasSponsorReserveAvax,
+  calculateGasSponsorTopUpAvax,
+} from './campaign-economics.js'
 import {
   connectWalletConnect,
   disconnectWalletConnect,
@@ -73,6 +79,8 @@ const adminState = {
   error: '',
   unlocked: false,
 }
+
+let campaignLoadError = ''
 
 const profileStorageKey = 'scandrop:profile'
 
@@ -216,6 +224,10 @@ app.innerHTML = `
             <div class="campaign-body">
               <div class="qr-wrap">
                 <canvas id="campaign-qr" aria-label="Scannable Avalanche reward campaign QR code"></canvas>
+                <div class="qr-unavailable" id="qr-unavailable" hidden>
+                  <strong>QR unavailable</strong>
+                  <span>Load or deploy an active gasless campaign.</span>
+                </div>
                 <span class="scan-corners"></span>
               </div>
               <div class="campaign-info">
@@ -224,8 +236,10 @@ app.innerHTML = `
                   <div><dt>Claim rule</dt><dd>Once per wallet</dd></div>
                   <div><dt>Network</dt><dd>Fuji C-Chain</dd></div>
                   <div><dt>Status</dt><dd><span class="status-pill" id="contract-status-label">● ${campaign.status}</span></dd></div>
+                  <div><dt>Gas sponsor</dt><dd><span id="gas-sponsor-health">Checking…</span></dd></div>
                 </dl>
                 <button class="dark-button" id="open-claim">Open wallet experience <span>↗</span></button>
+                <button class="sponsor-top-up" id="fund-gas-sponsor" hidden>Refill gas sponsor</button>
               </div>
             </div>
             <div class="budget-row">
@@ -318,7 +332,7 @@ app.innerHTML = `
       </div>
       <label>Campaign duration<div class="input-unit duration-unit"><span>◷</span><input name="duration" type="number" min="1" step="1" value="30" required><b>DAYS</b></div></label>
       <div class="rule-preview"><span>✓</span><div><strong>One wallet, one reward</strong><p>The RewardCampaign contract rejects every duplicate claim.</p></div></div>
-      <div class="rule-preview"><span>⚡</span><div><strong>Gasless for new users</strong><p>0.005 AVAX is sent to ScanDrop's relayer to sponsor claim transactions.</p></div></div>
+      <div class="rule-preview"><span>⚡</span><div><strong>Gasless for every funded reward</strong><p><b id="gas-reserve-preview">0.025</b> AVAX is reserved for ScanDrop's relayer, based on the campaign capacity.</p></div></div>
       <div class="deployment-summary">
         <span>Fuji testnet only</span>
         <span>No real-money value</span>
@@ -326,7 +340,7 @@ app.innerHTML = `
       </div>
       <div class="deployment-status" id="deployment-status" hidden></div>
       <button class="primary-button full" id="deploy-campaign" type="submit">Connect Core & deploy on Fuji</button>
-      <small class="deployment-note">Core will show contract funding + 0.005 AVAX for the gas sponsor + deployment gas. Claiming users need no AVAX.</small>
+      <small class="deployment-note">Core will show contract funding + <b id="gas-reserve-note">0.025</b> AVAX for the gas sponsor + deployment gas. Claiming users need no AVAX.</small>
     </form>
   </dialog>
 
@@ -353,7 +367,21 @@ function campaignUrl() {
 }
 
 async function renderQr() {
-  await QRCode.toCanvas(document.querySelector('#campaign-qr'), campaignUrl(), {
+  const canvas = document.querySelector('#campaign-qr')
+  const unavailable = document.querySelector('#qr-unavailable')
+  const claimButton = document.querySelector('#open-claim')
+
+  if (!isContractConfigured) {
+    canvas.hidden = true
+    unavailable.hidden = false
+    claimButton.disabled = true
+    return
+  }
+
+  canvas.hidden = false
+  unavailable.hidden = true
+  claimButton.disabled = false
+  await QRCode.toCanvas(canvas, campaignUrl(), {
     width: 184,
     margin: 1,
     errorCorrectionLevel: 'M',
@@ -495,6 +523,12 @@ function claimAvailability() {
 
 async function handleRegistrationSubmit(event) {
   event.preventDefault()
+  if (campaignLoadError || !isContractConfigured) {
+    accountState.error =
+      'Registration is paused until the active reward campaign is available.'
+    renderClaimExperience()
+    return
+  }
   const data = new FormData(event.currentTarget)
   accountState.busy = true
   accountState.error = ''
@@ -566,6 +600,7 @@ function renderClaimExperience() {
       <div class="profile-orbit"><span>SD</span></div>
       <h2>Create your ScanDrop profile.</h2>
       <p>Register once so this reward can become the start of a longer relationship.</p>
+      ${campaignLoadError ? `<div class="wallet-error">${escapeHtml(campaignLoadError)}</div>` : ''}
       ${accountState.error ? `<div class="wallet-error">${escapeHtml(accountState.error)}</div>` : ''}
       <form class="registration-form" id="registration-form">
         <label>
@@ -580,8 +615,8 @@ function renderClaimExperience() {
           <input name="marketingConsent" type="checkbox" required>
           <span>I agree to receive ScanDrop reward reminders and product updates. I can unsubscribe later.</span>
         </label>
-        <button class="claim-button" type="submit" ${accountState.busy ? 'disabled' : ''}>
-          ${accountState.busy ? 'Creating account…' : 'Create account & continue'}
+        <button class="claim-button" type="submit" ${accountState.busy || campaignLoadError ? 'disabled' : ''}>
+          ${campaignLoadError ? 'Campaign unavailable' : accountState.busy ? 'Creating account…' : 'Create account & continue'}
         </button>
       </form>
       <small class="claim-note">Test profile only · No password required · Email delivery will be connected later.</small>
@@ -719,7 +754,11 @@ async function handleWalletConnect(connectionType) {
 
 async function applyConnectedWallet(wallet, connectionType, { linkProfile = true } = {}) {
   if (linkProfile && accountState.registrationId) {
-    await linkRegistrationWallet(accountState.registrationId, wallet.address)
+    await linkRegistrationWallet(
+      accountState.registrationId,
+      wallet.address,
+      wallet.signer,
+    )
     accountState.walletAddress = wallet.address.toLowerCase()
     accountState.walletLinked = true
     accountState.claimStatus =
@@ -827,6 +866,21 @@ async function syncCampaignFromChain() {
     campaign.budget = Number(snapshot.contractBalance) + campaign.spent
     campaign.remaining = snapshot.remainingClaims
 
+    const sponsorHealth = document.querySelector('#gas-sponsor-health')
+    const sponsorButton = document.querySelector('#fund-gas-sponsor')
+    if (sponsorHealth && sponsorButton && snapshot.gasless) {
+      const topUpAmount = calculateGasSponsorTopUpAvax(
+        snapshot.remainingClaims,
+        snapshot.relayerBalance,
+      )
+      const needsTopUp = Number(topUpAmount) > 0
+      sponsorHealth.textContent = `${Number(snapshot.relayerBalance).toFixed(4)} AVAX${needsTopUp ? ' · LOW' : ' · READY'}`
+      sponsorHealth.classList.toggle('low', needsTopUp)
+      sponsorButton.hidden = !needsTopUp
+      sponsorButton.dataset.amount = topUpAmount
+      sponsorButton.textContent = `Refill ${topUpAmount} AVAX gas`
+    }
+
     if (!document.querySelector('#claimer-count')) return
 
     document.querySelector('#claimer-count').textContent = campaign.claimers.toLocaleString()
@@ -858,6 +912,28 @@ document.querySelectorAll('#open-claim, #preview-claim').forEach((button) => {
   button.addEventListener('click', openClaim)
 })
 
+document.querySelector('#fund-gas-sponsor')?.addEventListener('click', async (event) => {
+  const button = event.currentTarget
+  const amount = button.dataset.amount
+  if (!walletState.signer || !amount) {
+    showToast('Connect the organiser wallet before refilling the gas sponsor.')
+    return
+  }
+
+  button.disabled = true
+  button.textContent = 'Waiting for Core confirmation…'
+  try {
+    await fundGasSponsor(walletState.signer, amount)
+    await syncCampaignFromChain()
+    showToast('Gas sponsor refilled on Fuji.')
+  } catch (error) {
+    button.textContent = `Retry ${amount} AVAX gas refill`
+    showToast(friendlyWalletError(error))
+  } finally {
+    button.disabled = false
+  }
+})
+
 function setDeploymentStatus(type, message) {
   const status = document.querySelector('#deployment-status')
   status.hidden = false
@@ -885,16 +961,20 @@ function updateContractBanner() {
   banner.classList.toggle('connected', isContractConfigured)
   document.querySelector('#contract-title').textContent = isContractConfigured
     ? 'Fuji contract connected'
-    : 'Fuji integration compiled and ready'
+    : campaignLoadError
+      ? 'Active campaign unavailable'
+      : 'Fuji integration compiled and ready'
   document.querySelector('#contract-address').textContent = isContractConfigured
     ? formatAddress(REWARD_CAMPAIGN_ADDRESS)
-    : 'Deploy the contract to activate live claims'
+    : campaignLoadError || 'Deploy the contract to activate live claims'
   document.querySelector('#contract-badge').textContent = isContractConfigured
     ? '● ON-CHAIN'
     : '○ DEPLOYMENT PENDING'
   document.querySelector('#contract-status-label').textContent = isContractConfigured
     ? '● Live on Fuji'
-    : '● Contract ready'
+    : campaignLoadError
+      ? '● QR disabled'
+      : '● Contract ready'
 }
 
 function applyCampaignDraft(data) {
@@ -957,7 +1037,25 @@ document.querySelectorAll('.nav-item[data-section]').forEach((button) => {
   })
 })
 
-document.querySelector('#campaign-form').addEventListener('submit', async (event) => {
+const campaignForm = document.querySelector('#campaign-form')
+
+function updateGasReservePreview() {
+  const data = new FormData(campaignForm)
+  const reserve = calculateGasSponsorReserveAvax(
+    data.get('budget'),
+    data.get('reward'),
+  )
+  document.querySelector('#gas-reserve-preview').textContent = reserve
+  document.querySelector('#gas-reserve-note').textContent = reserve
+  return reserve
+}
+
+campaignForm
+  .querySelectorAll('input[name="reward"], input[name="budget"]')
+  .forEach((input) => input.addEventListener('input', updateGasReservePreview))
+updateGasReservePreview()
+
+campaignForm.addEventListener('submit', async (event) => {
   event.preventDefault()
   const data = new FormData(event.currentTarget)
   const deployButton = document.querySelector('#deploy-campaign')
@@ -987,26 +1085,33 @@ document.querySelector('#campaign-form').addEventListener('submit', async (event
       '<strong>Step 2 of 2 · Confirm deployment in Core</strong><span>Core will show the contract funding and network fee before you approve.</span>',
     )
     deployButton.textContent = 'Waiting for Core confirmation…'
+    const relayerGasFundingAvax = calculateGasSponsorReserveAvax(
+      data.get('budget'),
+      data.get('reward'),
+    )
 
     const result = await deployRewardCampaign(walletState.signer, {
       rewardAmountAvax: data.get('reward'),
       fundingAmountAvax: data.get('budget'),
       durationDays: data.get('duration'),
+      relayerGasFundingAvax,
     })
     deployedResult = result
 
     setRewardCampaignAddress(result.address)
     setDeploymentStatus(
       'pending',
-      '<strong>Contract confirmed · Activating gas sponsor</strong><span>ScanDrop is verifying the owner and relayer on Fuji.</span>',
+      '<strong>Contract confirmed · Authorize activation</strong><span>Approve one free organiser signature in Core so ScanDrop can activate the campaign.</span>',
     )
     await activateGaslessCampaign({
       campaignId: campaign.id,
       contractAddress: result.address,
       deploymentTransactionHash: result.hash,
+      signer: walletState.signer,
     })
     walletState.balance = result.ownerBalance
     walletState.campaign = await readCampaign(walletState.address)
+    campaignLoadError = ''
     campaign.status = 'Live on Fuji'
     updateContractBanner()
     await syncCampaignFromChain()
@@ -1023,12 +1128,17 @@ document.querySelector('#campaign-form').addEventListener('submit', async (event
     showToast('RewardCampaign deployed and added to the QR code.')
   } catch (error) {
     if (!campaignDialog.open) campaignDialog.showModal()
+    const submittedTransaction = error?.transactionHash
     setDeploymentStatus(
       'error',
       deployedResult
         ? `<strong>The contract deployed, but gasless activation needs attention</strong>
            <span>${formatAddress(deployedResult.address)} · ${escapeHtml(friendlyWalletError(error))}</span>
            <a href="${contractUrl(deployedResult.address)}" target="_blank" rel="noreferrer">View deployed contract ↗</a>`
+        : submittedTransaction
+          ? `<strong>The transaction was submitted and is still confirming</strong>
+             <span>${escapeHtml(friendlyWalletError(error))}</span>
+             <a href="${transactionUrl(submittedTransaction)}" target="_blank" rel="noreferrer">Check transaction before retrying ↗</a>`
         : `<strong>Deployment was not completed</strong><span>${escapeHtml(friendlyWalletError(error))}</span>`,
     )
     deployButton.disabled = false
@@ -1060,9 +1170,26 @@ if (isClaimRoute) {
   document.body.classList.add('claim-only-mode')
   document.querySelector('.app-shell')?.remove()
   document.querySelector('#campaign-dialog')?.remove()
-  window.setTimeout(openClaim, 150)
+  initializeClaimExperience()
 } else {
   initializeAdminExperience()
+}
+
+async function initializeClaimExperience() {
+  try {
+    const activeCampaign = await getActiveCampaign(campaign.id)
+    if (!activeCampaign?.contractAddress) {
+      throw new Error('This ScanDrop campaign is not active.')
+    }
+    setRewardCampaignAddress(activeCampaign.contractAddress)
+    campaignLoadError = ''
+  } catch {
+    clearRewardCampaignAddress()
+    campaignLoadError =
+      'This reward campaign is temporarily unavailable. Please ask the organiser for a refreshed QR code.'
+  }
+
+  window.setTimeout(openClaim, 150)
 }
 
 async function initializeAdminExperience() {
@@ -1076,7 +1203,11 @@ async function initializeAdminExperience() {
       updateContractBanner()
     }
   } catch {
-    // Before the first gasless deployment, the locally configured contract is used.
+    clearRewardCampaignAddress()
+    campaign.status = 'Campaign unavailable'
+    campaignLoadError =
+      'The active gasless campaign could not be loaded. QR sharing is disabled until it is restored.'
+    updateContractBanner()
   }
 
   await renderQr()

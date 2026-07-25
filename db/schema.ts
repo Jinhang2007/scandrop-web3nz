@@ -56,6 +56,7 @@ export const campaigns = sqliteTable(
     ownerAddress: text('owner_address').notNull(),
     relayerAddress: text('relayer_address').notNull(),
     deploymentTxHash: text('deployment_tx_hash').notNull(),
+    deploymentBlock: integer('deployment_block'),
     rewardAmountWei: text('reward_amount_wei').notNull(),
     status: text('status').notNull().default('active'),
     createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -65,3 +66,10 @@ export const campaigns = sqliteTable(
     uniqueIndex('campaigns_contract_address_unique').on(table.contractAddress),
   ],
 )
+
+export const relayLocks = sqliteTable('relay_locks', {
+  id: text('id').primaryKey(),
+  holder: text('holder').notNull().default(''),
+  expiresAt: integer('expires_at').notNull().default(0),
+  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+})

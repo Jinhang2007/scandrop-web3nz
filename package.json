@@ -9,6 +9,7 @@
     "contract:deploy:fuji": "node scripts/deploy-fuji.mjs",
     "db:generate": "drizzle-kit generate",
     "build": "npm run contract:compile && vite build && vite build --config vite.worker.config.js",
+    "test": "npm run contract:compile && node --test",
     "preview": "vite preview"
   },
   "devDependencies": {

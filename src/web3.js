@@ -7,6 +7,7 @@ import {
   parseEther,
 } from 'ethers'
 import rewardCampaignArtifact from './contracts/RewardCampaign.json'
+import { calculateGasSponsorReserveAvax } from './campaign-economics.js'
 
 export const FUJI_NETWORK = {
   chainId: 43113,
@@ -27,9 +28,8 @@ export const GASLESS_RELAYER_ADDRESS =
   '0x1c510e360696E199A896c07311b3fA6807763aE4'
 
 const campaignAddressStorageKey = 'scandrop:reward-campaign-address'
-const defaultCampaignAddress = '0xd326af1c80d190ba230a0a358781fcfa8ef08d99'
 const configuredCampaignAddress =
-  import.meta.env.VITE_REWARD_CAMPAIGN_ADDRESS?.trim() || defaultCampaignAddress
+  import.meta.env.VITE_REWARD_CAMPAIGN_ADDRESS?.trim() || ''
 const linkedCampaignAddress = new URLSearchParams(window.location.search)
   .get('contract')
   ?.trim()
@@ -42,8 +42,8 @@ function isAddress(value) {
 
 export let REWARD_CAMPAIGN_ADDRESS = [
   linkedCampaignAddress,
-  configuredCampaignAddress,
   savedCampaignAddress,
+  configuredCampaignAddress,
 ].find(isAddress) || ''
 
 export let isContractConfigured = isAddress(REWARD_CAMPAIGN_ADDRESS)
@@ -60,6 +60,31 @@ export function setRewardCampaignAddress(address) {
   const url = new URL(window.location.href)
   url.searchParams.set('contract', address)
   window.history.replaceState({}, '', url)
+}
+
+export function clearRewardCampaignAddress() {
+  REWARD_CAMPAIGN_ADDRESS = ''
+  isContractConfigured = false
+  window.localStorage.removeItem(campaignAddressStorageKey)
+
+  const url = new URL(window.location.href)
+  url.searchParams.delete('contract')
+  window.history.replaceState({}, '', url)
+}
+
+function withTimeout(promise, timeoutMs, message, details = {}) {
+  let timeout
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = window.setTimeout(() => {
+      const error = new Error(message)
+      Object.assign(error, details)
+      reject(error)
+    }, timeoutMs)
+  })
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    window.clearTimeout(timeout)
+  })
 }
 
 function getInjectedProvider() {
@@ -155,7 +180,7 @@ export async function deployRewardCampaign(
     rewardAmountAvax,
     fundingAmountAvax,
     durationDays,
-    relayerGasFundingAvax = '0.005',
+    relayerGasFundingAvax,
   },
 ) {
   if (!signer) {
@@ -165,7 +190,10 @@ export async function deployRewardCampaign(
   const rewardAmount = Number(rewardAmountAvax)
   const fundingAmount = Number(fundingAmountAvax)
   const duration = Number(durationDays)
-  const relayerGasFunding = Number(relayerGasFundingAvax)
+  const resolvedRelayerGasFundingAvax =
+    relayerGasFundingAvax ||
+    calculateGasSponsorReserveAvax(fundingAmountAvax, rewardAmountAvax)
+  const relayerGasFunding = Number(resolvedRelayerGasFundingAvax)
 
   if (
     !Number.isFinite(rewardAmount) ||
@@ -191,11 +219,13 @@ export async function deployRewardCampaign(
   const owner = await signer.getAddress()
   const balance = await provider.getBalance(owner)
   const fundingWei = parseEther(String(fundingAmountAvax))
-  const relayerGasFundingWei = parseEther(String(relayerGasFundingAvax))
+  const relayerGasFundingWei = parseEther(
+    String(resolvedRelayerGasFundingAvax),
+  )
   const totalDeploymentValue = fundingWei + relayerGasFundingWei
   if (balance <= totalDeploymentValue) {
     throw new Error(
-      `Your wallet has ${Number(formatEther(balance)).toFixed(4)} AVAX. Add enough Fuji AVAX for the campaign funding, the ${relayerGasFundingAvax} AVAX gas sponsor reserve, and deployment gas.`,
+      `Your wallet has ${Number(formatEther(balance)).toFixed(4)} AVAX. Add enough Fuji AVAX for the campaign funding, the ${resolvedRelayerGasFundingAvax} AVAX gas sponsor reserve, and deployment gas.`,
     )
   }
 
@@ -206,26 +236,38 @@ export async function deployRewardCampaign(
     rewardCampaignArtifact.bytecode,
     signer,
   )
-  const contract = await factory.deploy(
-    parseEther(String(rewardAmountAvax)),
-    endTime,
-    GASLESS_RELAYER_ADDRESS,
-    relayerGasFundingWei,
-    { value: totalDeploymentValue },
+  const contract = await withTimeout(
+    factory.deploy(
+      parseEther(String(rewardAmountAvax)),
+      endTime,
+      GASLESS_RELAYER_ADDRESS,
+      relayerGasFundingWei,
+      { value: totalDeploymentValue },
+    ),
+    90_000,
+    'Core did not return the deployment transaction in time. Reconnect Core and check Activity before trying again.',
   )
   const deploymentTransaction = contract.deploymentTransaction()
+  const predictedAddress = await contract.getAddress()
 
-  await contract.waitForDeployment()
-  const receipt = await deploymentTransaction.wait(1)
+  const receipt = await withTimeout(
+    deploymentTransaction.wait(1),
+    120_000,
+    'The deployment was submitted but confirmation is taking longer than expected. Check the transaction in Fuji Explorer before retrying.',
+    {
+      transactionHash: deploymentTransaction.hash,
+      contractAddress: predictedAddress,
+    },
+  )
   const ownerBalance = await provider.getBalance(owner)
 
   return {
-    address: await contract.getAddress(),
+    address: predictedAddress,
     hash: deploymentTransaction.hash,
     blockNumber: receipt.blockNumber,
     ownerBalance: formatEther(ownerBalance),
     relayer: GASLESS_RELAYER_ADDRESS,
-    relayerGasFunding: String(relayerGasFundingAvax),
+    relayerGasFunding: String(resolvedRelayerGasFundingAvax),
   }
 }
 
@@ -251,8 +293,10 @@ export async function readCampaign(account) {
     ])
 
   let relayer = ''
+  let relayerBalance = '0'
   try {
     relayer = await contract.relayer()
+    relayerBalance = formatEther(await provider.getBalance(relayer))
   } catch {
     // Contracts deployed before gasless claims do not expose a relayer.
   }
@@ -266,7 +310,39 @@ export async function readCampaign(account) {
     contractBalance: formatEther(balance),
     remainingClaims: Number(remainingClaims),
     relayer,
+    relayerBalance,
     gasless: isAddress(relayer),
+  }
+}
+
+export async function fundGasSponsor(signer, amountAvax) {
+  if (!signer || !isAddress(GASLESS_RELAYER_ADDRESS)) {
+    throw new Error('Connect the organiser wallet before refilling the gas sponsor.')
+  }
+
+  const amount = Number(amountAvax)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Enter a valid gas sponsor amount.')
+  }
+
+  const transaction = await withTimeout(
+    signer.sendTransaction({
+      to: GASLESS_RELAYER_ADDRESS,
+      value: parseEther(String(amountAvax)),
+    }),
+    90_000,
+    'Core did not return the gas sponsor transaction in time. Check Activity before trying again.',
+  )
+  const receipt = await withTimeout(
+    transaction.wait(1),
+    120_000,
+    'The gas sponsor top-up was submitted and is still confirming on Fuji.',
+    { transactionHash: transaction.hash },
+  )
+
+  return {
+    hash: transaction.hash,
+    blockNumber: receipt.blockNumber,
   }
 }
 
