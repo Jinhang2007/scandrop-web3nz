@@ -1,8 +1,10 @@
 import {
   BrowserProvider,
   Contract,
+  ContractFactory,
   JsonRpcProvider,
   formatEther,
+  parseEther,
 } from 'ethers'
 import rewardCampaignArtifact from './contracts/RewardCampaign.json'
 
@@ -20,12 +22,40 @@ export const FUJI_NETWORK = {
   faucetUrl: 'https://core.app/tools/testnet-faucet/',
 }
 
-export const REWARD_CAMPAIGN_ADDRESS =
+const campaignAddressStorageKey = 'scandrop:reward-campaign-address'
+const configuredCampaignAddress =
   import.meta.env.VITE_REWARD_CAMPAIGN_ADDRESS?.trim() || ''
+const linkedCampaignAddress = new URLSearchParams(window.location.search)
+  .get('contract')
+  ?.trim()
+const savedCampaignAddress =
+  window.localStorage.getItem(campaignAddressStorageKey)?.trim() || ''
 
-export const isContractConfigured = /^0x[a-fA-F0-9]{40}$/.test(
-  REWARD_CAMPAIGN_ADDRESS,
-)
+function isAddress(value) {
+  return /^0x[a-fA-F0-9]{40}$/.test(value || '')
+}
+
+export let REWARD_CAMPAIGN_ADDRESS = [
+  linkedCampaignAddress,
+  configuredCampaignAddress,
+  savedCampaignAddress,
+].find(isAddress) || ''
+
+export let isContractConfigured = isAddress(REWARD_CAMPAIGN_ADDRESS)
+
+export function setRewardCampaignAddress(address) {
+  if (!isAddress(address)) {
+    throw new Error('The deployed contract address is invalid.')
+  }
+
+  REWARD_CAMPAIGN_ADDRESS = address
+  isContractConfigured = true
+  window.localStorage.setItem(campaignAddressStorageKey, address)
+
+  const url = new URL(window.location.href)
+  url.searchParams.set('contract', address)
+  window.history.replaceState({}, '', url)
+}
 
 function getInjectedProvider() {
   const provider = window.avalanche || window.ethereum
@@ -48,6 +78,10 @@ export function formatAddress(address) {
 
 export function transactionUrl(hash) {
   return `${FUJI_NETWORK.explorerUrl}/tx/${hash}`
+}
+
+export function contractUrl(address) {
+  return `${FUJI_NETWORK.explorerUrl}/address/${address}`
 }
 
 async function switchProviderToFuji(ethereum) {
@@ -108,6 +142,71 @@ export async function connectEip1193Wallet(
 
 export async function connectWallet() {
   return connectEip1193Wallet(getInjectedProvider())
+}
+
+export async function deployRewardCampaign(
+  signer,
+  { rewardAmountAvax, fundingAmountAvax, durationDays },
+) {
+  if (!signer) {
+    throw new Error('Connect the organiser wallet before deploying.')
+  }
+
+  const rewardAmount = Number(rewardAmountAvax)
+  const fundingAmount = Number(fundingAmountAvax)
+  const duration = Number(durationDays)
+
+  if (
+    !Number.isFinite(rewardAmount) ||
+    rewardAmount <= 0 ||
+    !Number.isFinite(fundingAmount) ||
+    fundingAmount <= 0 ||
+    rewardAmount > fundingAmount ||
+    !Number.isFinite(duration) ||
+    duration <= 0
+  ) {
+    throw new Error('Enter a valid reward, funding amount, and campaign duration.')
+  }
+
+  const provider = signer.provider
+  const network = await provider.getNetwork()
+  if (network.chainId !== BigInt(FUJI_NETWORK.chainId)) {
+    throw new Error('Switch your wallet to Avalanche Fuji and try again.')
+  }
+
+  const owner = await signer.getAddress()
+  const balance = await provider.getBalance(owner)
+  const fundingWei = parseEther(String(fundingAmountAvax))
+  if (balance <= fundingWei) {
+    throw new Error(
+      `Your wallet has ${Number(formatEther(balance)).toFixed(4)} AVAX. Add enough Fuji AVAX for the campaign funding plus gas.`,
+    )
+  }
+
+  const endTime =
+    Math.floor(Date.now() / 1000) + Math.round(duration * 24 * 60 * 60)
+  const factory = new ContractFactory(
+    rewardCampaignArtifact.abi,
+    rewardCampaignArtifact.bytecode,
+    signer,
+  )
+  const contract = await factory.deploy(
+    parseEther(String(rewardAmountAvax)),
+    endTime,
+    { value: fundingWei },
+  )
+  const deploymentTransaction = contract.deploymentTransaction()
+
+  await contract.waitForDeployment()
+  const receipt = await deploymentTransaction.wait(1)
+  const ownerBalance = await provider.getBalance(owner)
+
+  return {
+    address: await contract.getAddress(),
+    hash: deploymentTransaction.hash,
+    blockNumber: receipt.blockNumber,
+    ownerBalance: formatEther(ownerBalance),
+  }
 }
 
 export async function readCampaign(account) {

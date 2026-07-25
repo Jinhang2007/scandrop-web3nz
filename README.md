@@ -106,7 +106,19 @@ src/contracts/RewardCampaign.json
 
 ## Deploy to Avalanche Fuji
 
-Use a new test-only wallet. Never commit a private key or paste one into chat.
+The preferred Hackathon flow is built into the website:
+
+1. Select **New campaign**.
+2. Set the reward, contract funding, and campaign duration.
+3. Select **Connect Core & deploy on Fuji**.
+4. Approve the wallet connection and deployment transaction in Core.
+5. The deployed address is added to the campaign URL and QR code automatically.
+
+Use Fuji test AVAX only. The website never requests, stores, or transmits a
+wallet private key.
+
+For a command-line deployment, use a new test-only wallet. Never commit a
+private key or paste one into chat.
 
 1. Copy `.env.example` to `.env`.
 2. Add Fuji test AVAX to the deployer wallet from the [Core testnet faucet](https://core.app/tools/testnet-faucet/).

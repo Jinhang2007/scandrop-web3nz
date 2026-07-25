@@ -290,10 +290,31 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
 .input-unit input { border: 0; border-radius: 0; padding-left: 0; }
 .input-unit > span { text-align: center; color: #899089; }
 .input-unit b { font-size: 8px; color: #737a74; }
+.duration-unit { max-width: 220px; }
 .rule-preview { display: flex; gap: 11px; padding: 13px; border-radius: 9px; background: var(--lime-soft); }
 .rule-preview > span { width: 25px; height: 25px; border-radius: 7px; display: grid; place-items: center; background: var(--lime); font-size: 11px; }
 .rule-preview strong { display: block; font-size: 10px; }
 .rule-preview p { color: #727972; font-size: 8px; margin-top: 3px; }
+.deployment-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+.deployment-summary span {
+  padding: 5px 7px; border: 1px solid var(--line); border-radius: 12px;
+  color: #747b75; background: #f8f9f6; font: 500 7px 'DM Mono', monospace;
+}
+.deployment-status {
+  display: grid; gap: 4px; padding: 11px 12px; border: 1px solid var(--line);
+  border-radius: 9px; background: #f8f9f6; font-size: 9px; line-height: 1.45;
+}
+.deployment-status[hidden] { display: none; }
+.deployment-status strong, .deployment-status span { display: block; }
+.deployment-status span { color: #727972; }
+.deployment-status.pending { border-color: #efd5b5; background: #fff8ef; }
+.deployment-status.pending strong { color: #8a5d29; }
+.deployment-status.success { border-color: #b9dbbe; background: #eef9f0; }
+.deployment-status.success strong { color: #347847; }
+.deployment-status.error { border-color: #efc5c5; background: var(--avax-soft); }
+.deployment-status.error strong { color: #9b4748; }
+.deployment-status a { color: var(--ink); font-weight: 800; }
+.deployment-note { display: block; color: #8a918a; font-size: 8px; line-height: 1.45; text-align: center; }
 
 .toast { position: fixed; left: 50%; bottom: 24px; z-index: 30; transform: translate(-50%, 20px); padding: 10px 15px; border-radius: 9px; background: var(--ink); color: #fff; font-size: 10px; opacity: 0; pointer-events: none; transition: .22s ease; box-shadow: 0 15px 35px rgba(0,0,0,.2); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }

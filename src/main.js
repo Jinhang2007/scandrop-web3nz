@@ -5,10 +5,13 @@ import {
   REWARD_CAMPAIGN_ADDRESS,
   claimReward,
   connectWallet,
+  contractUrl,
+  deployRewardCampaign,
   formatAddress,
   hasInjectedWallet,
   isContractConfigured,
   readCampaign,
+  setRewardCampaignAddress,
   transactionUrl,
 } from './web3.js'
 import {
@@ -104,14 +107,14 @@ app.innerHTML = `
           <p>Launch instant AVAX reward drops, prove every claim on Fuji, and bring the right people back.</p>
         </div>
 
-        <div class="chain-banner ${isContractConfigured ? 'connected' : ''}">
+        <div class="chain-banner ${isContractConfigured ? 'connected' : ''}" id="contract-banner">
           <div class="chain-orb">A</div>
           <div>
             <span class="eyebrow">SMART CONTRACT</span>
-            <strong>${isContractConfigured ? 'Fuji contract connected' : 'Fuji integration compiled and ready'}</strong>
+            <strong id="contract-title">${isContractConfigured ? 'Fuji contract connected' : 'Fuji integration compiled and ready'}</strong>
             <small id="contract-address">${isContractConfigured ? formatAddress(REWARD_CAMPAIGN_ADDRESS) : 'Deploy the contract to activate live claims'}</small>
           </div>
-          <span class="chain-badge">${isContractConfigured ? '● ON-CHAIN' : '○ DEPLOYMENT PENDING'}</span>
+          <span class="chain-badge" id="contract-badge">${isContractConfigured ? '● ON-CHAIN' : '○ DEPLOYMENT PENDING'}</span>
         </div>
 
         <div class="metric-grid">
@@ -241,16 +244,24 @@ app.innerHTML = `
   <dialog id="campaign-dialog" class="campaign-dialog">
     <button class="dialog-close" data-close aria-label="Close">×</button>
     <span class="eyebrow">NEW FUJI CAMPAIGN</span>
-    <h2>Draft an AVAX reward drop</h2>
-    <p>Set the economics here, then deploy a RewardCampaign contract to activate on-chain claims.</p>
+    <h2>Deploy an AVAX reward drop</h2>
+    <p>Set the campaign economics, connect the organiser wallet, and confirm one Fuji deployment transaction in Core.</p>
     <form id="campaign-form">
-      <label>Campaign name<input name="name" value="Community AVAX Welcome Drop" required></label>
+      <label>Campaign name<input name="name" value="Web3NZ AVAX Welcome Drop" required></label>
       <div class="form-row">
         <label>Reward per wallet<div class="input-unit"><span>◆</span><input name="reward" type="number" min="0.001" step="0.001" value="0.01" required><b>AVAX</b></div></label>
-        <label>Contract funding<div class="input-unit"><span>◆</span><input name="budget" type="number" min="0.1" step="0.1" value="5" required><b>AVAX</b></div></label>
+        <label>Contract funding<div class="input-unit"><span>◆</span><input name="budget" type="number" min="0.1" step="0.1" value="1" required><b>AVAX</b></div></label>
       </div>
+      <label>Campaign duration<div class="input-unit duration-unit"><span>◷</span><input name="duration" type="number" min="1" step="1" value="30" required><b>DAYS</b></div></label>
       <div class="rule-preview"><span>✓</span><div><strong>One wallet, one reward</strong><p>The RewardCampaign contract rejects every duplicate claim.</p></div></div>
-      <button class="primary-button full" type="submit">Save campaign draft & generate QR</button>
+      <div class="deployment-summary">
+        <span>Fuji testnet only</span>
+        <span>No real-money value</span>
+        <span>Wallet confirmation required</span>
+      </div>
+      <div class="deployment-status" id="deployment-status" hidden></div>
+      <button class="primary-button full" id="deploy-campaign" type="submit">Connect Core & deploy on Fuji</button>
+      <small class="deployment-note">The funding amount is deposited into the contract. Keep a little extra Fuji AVAX in your wallet for gas.</small>
     </form>
   </dialog>
 
@@ -265,6 +276,9 @@ function campaignUrl() {
   const url = new URL(window.location.href)
   url.search = ''
   url.searchParams.set('campaign', campaign.id)
+  if (isContractConfigured) {
+    url.searchParams.set('contract', REWARD_CAMPAIGN_ADDRESS)
+  }
   return url.toString()
 }
 
@@ -281,6 +295,15 @@ function showToast(message) {
   toast.textContent = message
   toast.classList.add('show')
   window.setTimeout(() => toast.classList.remove('show'), 2800)
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
 }
 
 function friendlyWalletError(error) {
@@ -405,11 +428,7 @@ async function handleWalletConnect(connectionType) {
       connectionType === 'walletconnect'
         ? await connectWalletConnect()
         : await connectWallet()
-    walletState.address = wallet.address
-    walletState.balance = wallet.balance
-    walletState.signer = wallet.signer
-    walletState.campaign = await readCampaign(wallet.address)
-    walletState.connectionType = connectionType
+    await applyConnectedWallet(wallet, connectionType)
   } catch (error) {
     walletState.error = friendlyWalletError(error)
   } finally {
@@ -417,6 +436,14 @@ async function handleWalletConnect(connectionType) {
     if (!claimDialog.open) claimDialog.showModal()
     renderClaimExperience()
   }
+}
+
+async function applyConnectedWallet(wallet, connectionType) {
+  walletState.address = wallet.address
+  walletState.balance = wallet.balance
+  walletState.signer = wallet.signer
+  walletState.campaign = await readCampaign(wallet.address)
+  walletState.connectionType = connectionType
 }
 
 async function handleOnChainClaim() {
@@ -496,8 +523,75 @@ document.querySelectorAll('#open-claim, #preview-claim').forEach((button) => {
   button.addEventListener('click', openClaim)
 })
 
+function setDeploymentStatus(type, message) {
+  const status = document.querySelector('#deployment-status')
+  status.hidden = false
+  status.className = `deployment-status ${type}`
+  status.innerHTML = message
+}
+
+function clearDeploymentStatus() {
+  const status = document.querySelector('#deployment-status')
+  status.hidden = true
+  status.className = 'deployment-status'
+  status.textContent = ''
+}
+
+function updateDeploymentButton() {
+  const button = document.querySelector('#deploy-campaign')
+  if (button.disabled) return
+  button.textContent = walletState.signer
+    ? `Deploy with ${formatAddress(walletState.address)}`
+    : 'Connect Core & deploy on Fuji'
+}
+
+function updateContractBanner() {
+  const banner = document.querySelector('#contract-banner')
+  banner.classList.toggle('connected', isContractConfigured)
+  document.querySelector('#contract-title').textContent = isContractConfigured
+    ? 'Fuji contract connected'
+    : 'Fuji integration compiled and ready'
+  document.querySelector('#contract-address').textContent = isContractConfigured
+    ? formatAddress(REWARD_CAMPAIGN_ADDRESS)
+    : 'Deploy the contract to activate live claims'
+  document.querySelector('#contract-badge').textContent = isContractConfigured
+    ? '● ON-CHAIN'
+    : '○ DEPLOYMENT PENDING'
+  document.querySelector('#contract-status-label').textContent = isContractConfigured
+    ? '● Live on Fuji'
+    : '● Contract ready'
+}
+
+function applyCampaignDraft(data) {
+  campaign.name = data.get('name')
+  campaign.reward = Number(data.get('reward'))
+  campaign.budget = Number(data.get('budget'))
+  campaign.spent = 0
+  campaign.claimers = 0
+  campaign.remaining = Math.floor(campaign.budget / campaign.reward)
+  campaign.id = campaign.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+
+  document.querySelector('#campaign-title').textContent = campaign.name
+  document.querySelector('#reward-value').textContent = `${campaign.reward.toFixed(3)} AVAX`
+  document.querySelector('#budget-total').textContent = `${campaign.budget.toFixed(2)} AVAX`
+  document.querySelector('#budget-label').textContent = `${campaign.budget.toFixed(2)} AVAX`
+  document.querySelector('#budget-spent-label').textContent = '0.00 AVAX'
+  document.querySelector('#budget-progress').style.width = '0%'
+  document.querySelector('#claimer-count').textContent = '0'
+  document.querySelector('#budget-used').textContent = '0.00 AVAX'
+  document.querySelector('#successful-claims').textContent = '0 successful claims'
+  document.querySelector('#remaining-claims').textContent =
+    `${campaign.remaining.toLocaleString()} rewards available`
+}
+
 document.querySelector('#create-campaign').addEventListener('click', () => {
+  clearDeploymentStatus()
+  updateDeploymentButton()
   campaignDialog.showModal()
+  preloadWalletConnect().catch(() => {})
 })
 
 document.querySelectorAll('[data-close]').forEach((button) => {
@@ -524,32 +618,65 @@ document.querySelectorAll('.nav-item[data-section]').forEach((button) => {
 document.querySelector('#campaign-form').addEventListener('submit', async (event) => {
   event.preventDefault()
   const data = new FormData(event.currentTarget)
-  campaign.name = data.get('name')
-  campaign.reward = Number(data.get('reward'))
-  campaign.budget = Number(data.get('budget'))
-  campaign.spent = 0
-  campaign.claimers = 0
-  campaign.remaining = Math.floor(campaign.budget / campaign.reward)
-  campaign.id = campaign.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
+  const deployButton = document.querySelector('#deploy-campaign')
+  applyCampaignDraft(data)
+  deployButton.disabled = true
 
-  document.querySelector('#campaign-title').textContent = campaign.name
-  document.querySelector('#reward-value').textContent = `${campaign.reward.toFixed(3)} AVAX`
-  document.querySelector('#budget-total').textContent = `${campaign.budget.toFixed(2)} AVAX`
-  document.querySelector('#budget-label').textContent = `${campaign.budget.toFixed(2)} AVAX`
-  document.querySelector('#budget-spent-label').textContent = '0.00 AVAX'
-  document.querySelector('#budget-progress').style.width = '0%'
-  document.querySelector('#claimer-count').textContent = '0'
-  document.querySelector('#budget-used').textContent = '0.00 AVAX'
-  document.querySelector('#successful-claims').textContent = '0 successful claims'
-  document.querySelector('#remaining-claims').textContent =
-    `${campaign.remaining.toLocaleString()} rewards available in this draft`
+  try {
+    if (!walletState.signer) {
+      setDeploymentStatus(
+        'pending',
+        '<strong>Step 1 of 2 · Connect organiser wallet</strong><span>Choose Core, then approve the Fuji connection.</span>',
+      )
+      campaignDialog.close()
 
-  await renderQr()
-  campaignDialog.close()
-  showToast('Campaign draft saved. Deploy RewardCampaign to activate it on Fuji.')
+      const connectionType = hasInjectedWallet() ? 'injected' : 'walletconnect'
+      const wallet =
+        connectionType === 'injected'
+          ? await connectWallet()
+          : await connectWalletConnect()
+      await applyConnectedWallet(wallet, connectionType)
+      campaignDialog.showModal()
+    }
+
+    setDeploymentStatus(
+      'pending',
+      '<strong>Step 2 of 2 · Confirm deployment in Core</strong><span>Core will show the contract funding and network fee before you approve.</span>',
+    )
+    deployButton.textContent = 'Waiting for Core confirmation…'
+
+    const result = await deployRewardCampaign(walletState.signer, {
+      rewardAmountAvax: data.get('reward'),
+      fundingAmountAvax: data.get('budget'),
+      durationDays: data.get('duration'),
+    })
+
+    setRewardCampaignAddress(result.address)
+    walletState.balance = result.ownerBalance
+    walletState.campaign = await readCampaign(walletState.address)
+    campaign.status = 'Live on Fuji'
+    updateContractBanner()
+    await syncCampaignFromChain()
+    await renderQr()
+    renderClaimExperience()
+
+    setDeploymentStatus(
+      'success',
+      `<strong>Campaign deployed on Fuji</strong>
+       <span>${formatAddress(result.address)} · Block ${result.blockNumber}</span>
+       <a href="${contractUrl(result.address)}" target="_blank" rel="noreferrer">View contract on Fuji Explorer ↗</a>`,
+    )
+    deployButton.textContent = 'Campaign is live on Fuji'
+    showToast('RewardCampaign deployed and added to the QR code.')
+  } catch (error) {
+    if (!campaignDialog.open) campaignDialog.showModal()
+    setDeploymentStatus(
+      'error',
+      `<strong>Deployment was not completed</strong><span>${escapeHtml(friendlyWalletError(error))}</span>`,
+    )
+    deployButton.disabled = false
+    updateDeploymentButton()
+  }
 })
 
 if (window.ethereum?.on) {
