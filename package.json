@@ -5,13 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && mkdir -p dist/server && cp worker/index.js dist/server/index.js",
+    "contract:compile": "node scripts/compile-contract.mjs",
+    "contract:deploy:fuji": "node scripts/deploy-fuji.mjs",
+    "build": "npm run contract:compile && vite build && mkdir -p dist/server && cp worker/index.js dist/server/index.js",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "solc": "^0.8.36",
     "vite": "^8.1.1"
   },
   "dependencies": {
+    "ethers": "^6.17.0",
     "qrcode": "^1.5.4"
+  },
+  "overrides": {
+    "tmp": "^0.2.6"
   }
 }

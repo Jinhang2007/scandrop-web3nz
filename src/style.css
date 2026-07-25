@@ -11,6 +11,8 @@
   --violet: #c8b5ff;
   --cyan: #a5e8ea;
   --orange: #ffbe7a;
+  --avax: #e84142;
+  --avax-soft: #fff0f0;
   font-family: 'Manrope', system-ui, sans-serif;
   color: var(--ink);
   background: var(--paper);
@@ -85,6 +87,27 @@ h1, h2, p { margin: 0; }
 .hero-copy h1 { margin-top: 12px; font-size: clamp(35px, 4vw, 58px); line-height: .98; letter-spacing: -.055em; font-weight: 700; }
 .hero-copy h1 em { font-style: normal; color: #747b75; font-weight: 500; }
 .hero-copy > p { max-width: 360px; color: #6e756f; font-size: 13px; line-height: 1.6; padding-bottom: 3px; }
+
+.chain-banner {
+  display: grid; grid-template-columns: 42px 1fr auto; gap: 12px; align-items: center;
+  margin-bottom: 16px; padding: 13px 16px; border: 1px solid #f1c9c9; border-radius: 13px;
+  background: linear-gradient(110deg, #fff 0%, var(--avax-soft) 100%);
+}
+.chain-banner.connected { border-color: #b9dbbe; background: linear-gradient(110deg, #fff 0%, #ecf9ee 100%); }
+.chain-orb {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--avax); color: #fff; font-size: 17px; font-weight: 800;
+  box-shadow: 0 8px 18px rgba(232,65,66,.18);
+}
+.chain-banner.connected .chain-orb { background: #4d9c5d; box-shadow: 0 8px 18px rgba(77,156,93,.18); }
+.chain-banner strong, .chain-banner small { display: block; }
+.chain-banner strong { margin: 3px 0 2px; font-size: 12px; }
+.chain-banner small { color: #868d87; font: 500 9px 'DM Mono', monospace; }
+.chain-badge {
+  color: #aa4f50; font: 500 8px 'DM Mono', monospace; letter-spacing: .06em;
+  padding: 6px 8px; border: 1px solid #efc2c2; border-radius: 12px; background: rgba(255,255,255,.7);
+}
+.chain-banner.connected .chain-badge { color: #438253; border-color: #b9dbbe; }
 
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; background: var(--panel); margin-bottom: 16px; }
 .metric-card { padding: 18px 20px 17px; border-right: 1px solid var(--line); }
@@ -184,18 +207,38 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
 .coin-orbit i:nth-of-type(1) { top: 6px; right: 25px; }
 .coin-orbit i:nth-of-type(2) { bottom: 21px; left: -2px; background: var(--orange); }
 .coin-orbit i:nth-of-type(3) { bottom: 4px; right: 29px; background: var(--cyan); }
+.avax-orbit { border-color: #f0c9c9; background: radial-gradient(circle, #fff 35%, var(--avax-soft) 100%); }
+.compact-orbit { width: 112px; height: 112px; margin: 21px auto 17px; }
+.compact-orbit .coin { width: 66px; height: 66px; font-size: 25px; }
+.avax-coin { background: var(--avax); border-color: #ffb5b5; color: #fff; box-shadow: 0 12px 30px rgba(232,65,66,.22); }
 .phone-shell h2 { font-size: 25px; letter-spacing: -.04em; }
 .phone-shell #claim-content > p { color: #747b75; font-size: 11px; line-height: 1.55; max-width: 290px; margin: 10px auto 24px; }
 .wallet-card { display: grid; grid-template-columns: 35px 1fr auto; align-items: center; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: #fff; text-align: left; }
 .wallet-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: var(--ink); color: var(--lime); font-size: 10px; font-weight: 800; }
+.avax-avatar { background: var(--avax); color: #fff; }
 .wallet-card small, .wallet-card strong { display: block; }
 .wallet-card small { color: #8b928c; font-size: 8px; }
 .wallet-card strong { font-size: 10px; margin-top: 2px; }
 .eligible { color: #438954; background: #e7f8ea; border-radius: 12px; padding: 5px 7px; font-size: 7px; font-weight: 800; }
 .eligible.used { color: #a06b30; background: #fff0dc; }
+.wallet-error {
+  margin: 11px 0 0; padding: 9px 10px; border: 1px solid #efc5c5; border-radius: 8px;
+  background: var(--avax-soft); color: #9b4748; font-size: 9px; line-height: 1.45; text-align: left;
+}
+.contract-pending {
+  display: grid; grid-template-columns: 26px 1fr; gap: 9px; margin-top: 11px; padding: 10px;
+  border: 1px solid #f0d6b6; border-radius: 9px; background: #fff8ef; text-align: left;
+}
+.contract-pending > span {
+  width: 25px; height: 25px; border-radius: 7px; display: grid; place-items: center;
+  background: #ffe3c0; color: #995e1f; font-size: 13px;
+}
+.contract-pending strong { display: block; font-size: 9px; }
+.contract-pending p { margin-top: 3px; color: #8a7965; font-size: 8px; line-height: 1.4; }
 .claim-button { width: 100%; border: 0; border-radius: 10px; padding: 13px; margin-top: 12px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 800; }
 .claim-button:disabled { background: #a8ada8; cursor: not-allowed; }
 .switch-account { border: 0; background: transparent; margin-top: 9px; color: #687069; font-size: 9px; text-decoration: underline; }
+.faucet-link { display: inline-block; }
 .claim-note { display: block; color: #9aa09a; margin-top: 18px; font-size: 7px; }
 .success-ring { width: 135px; height: 135px; margin: 32px auto 24px; border-radius: 50%; display: grid; place-items: center; background: var(--lime-soft); border: 1px solid #d9edaa; }
 .success-ring span { width: 74px; height: 74px; border-radius: 50%; display: grid; place-items: center; background: var(--lime); font-size: 28px; }
@@ -204,6 +247,10 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
 .receipt div:last-child { border: 0; }
 .receipt span { color: #8a918a; }
 .receipt .confirmed { color: #3d8b4f; }
+.avax-success { background: var(--avax-soft); border-color: #f2cccc; }
+.avax-success span { background: var(--avax); color: #fff; }
+.explorer-button { display: block; text-decoration: none; }
+.explorer-link { text-decoration: none; }
 
 .campaign-dialog { width: min(500px, calc(100vw - 36px)); padding: 28px; background: #fff; border-radius: 18px; box-shadow: 0 35px 80px rgba(0,0,0,.4); }
 .campaign-dialog h2 { font-size: 25px; margin: 8px 0; letter-spacing: -.04em; }
@@ -247,6 +294,8 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
   .hero-copy { display: block; }
   .hero-copy h1 { font-size: 38px; }
   .hero-copy > p { margin-top: 17px; }
+  .chain-banner { grid-template-columns: 38px 1fr; }
+  .chain-badge { grid-column: 1 / -1; justify-self: start; }
   .metric-grid { grid-template-columns: 1fr 1fr; }
   .metric-card:nth-child(2) { border-right: 0; }
   .metric-card:nth-child(-n+2) { border-bottom: 1px solid var(--line); }

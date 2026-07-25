@@ -1,74 +1,52 @@
 # ScanDrop
 
-ScanDrop is a Web3NZ Hackathon prototype that helps organisations turn QR-code scans into measurable, returning customers through instant rewards and automated retention journeys.
+ScanDrop is a Web3NZ Hackathon prototype for turning QR-code scans into measurable, returning users with native AVAX rewards on Avalanche Fuji.
 
-> Scan once. Claim instantly. One account, one reward.
+> Scan once. Connect a wallet. Claim test AVAX once.
 
 ## Live Demo
 
-[Open the ScanDrop demo](https://scandrop-web3nz.jinhang2007.chatgpt.site/)
+[Open ScanDrop](https://scandrop-web3nz.jinhang2007.chatgpt.site/)
 
-## Product Idea
+## Current Web3 Scope
 
-An organisation creates a reward campaign and receives a unique QR code. A user scans the code, connects an account, and immediately receives a small reward.
+This version implements the Avalanche path only:
 
-Each account can only claim once per campaign. ScanDrop then uses interest-based follow-ups and progressively higher rewards to identify users who are genuinely interested in the product.
+- Avalanche Fuji C-Chain (`chainId 43113`)
+- Native Fuji test AVAX rewards
+- A Solidity campaign contract funded with AVAX
+- One successful claim per wallet address
+- Live wallet connection with Core Wallet or MetaMask
+- Public transaction links through the Fuji explorer
 
-The intended funnel is:
+USDC is not used in this test. The previously discussed NewMoney integration (step 8) is intentionally not included.
 
-1. Day 0: instant welcome reward after a unique scan.
-2. Day 3: product introduction and education.
-3. Day 7: interest-based return campaign.
-4. Day 30: higher-value reward for qualified users.
-5. Long term: relevant campaigns, loyalty benefits, and community rewards.
+Fuji AVAX has no real-world value and is used only for testing.
 
-## Current Features
+## Reward Flow
 
-- Create a QR reward campaign.
-- Configure the reward amount and total campaign budget.
-- Generate a real, scannable QR code.
-- Preview the mobile reward-claim experience.
-- Enforce one claim per demo account and campaign.
-- Switch between demo accounts to test account uniqueness.
-- Simulate USDC reward payments with a local ledger.
-- View acquisition and retention funnel metrics.
-- View Day 0, Day 3, Day 7, and Day 30 automation stages.
-- Review audience interest and return-rate segments.
-- Responsive dashboard and mobile claim interface.
+1. The organiser deploys `RewardCampaign` to Avalanche Fuji and funds it with test AVAX.
+2. ScanDrop generates a campaign QR code.
+3. A user scans the code and opens the claim screen.
+4. The user connects Core Wallet or MetaMask.
+5. ScanDrop switches the wallet to Avalanche Fuji.
+6. The contract checks that the wallet has not claimed before and that funding remains.
+7. The contract transfers a fixed amount of native test AVAX.
+8. The UI displays the confirmed transaction and Fuji explorer link.
 
-## Demo Limitations
+The contract enforces one claim per wallet address. It does not prove that two wallets belong to two different people; stronger Sybil protection is a later production concern.
 
-This version is an interactive Hackathon prototype:
+## Smart Contract
 
-- No real cryptocurrency is transferred.
-- Account uniqueness is simulated in browser storage.
-- Email automation is represented in the interface but is not yet connected to an email provider.
-- Campaign and audience data use realistic demonstration values.
-- A production version would enforce uniqueness, budgets, and claims on a backend database.
+[`contracts/RewardCampaign.sol`](contracts/RewardCampaign.sol) provides:
 
-## Planned Web3 Integration
-
-The application is designed to keep the reward protocol replaceable. A future version can add adapters such as:
-
-```js
-PaymentAdapter.sendReward()
-IdentityAdapter.verifyAccount()
-```
-
-Potential integrations include:
-
-- Avalanche C-Chain for testnet or stablecoin transactions.
-- NewMoney for payment and stablecoin infrastructure.
-- Wallet signature authentication.
-- A digital identity or proof-of-personhood service for stronger Sybil resistance.
-
-## Technology
-
-- Vite
-- Vanilla JavaScript
-- CSS
-- `qrcode` for generating scannable campaign codes
-- Cloudflare-compatible worker entry point for deployment
+- An immutable reward amount
+- A campaign end time
+- One-claim-per-wallet enforcement
+- Contract-balance-based campaign limits
+- Pause and campaign-extension controls for the owner
+- Withdrawal of unused funds only after pause or expiry
+- `RewardClaimed` events for a public campaign record
 
 ## Run Locally
 
@@ -76,16 +54,12 @@ Requirements:
 
 - Node.js
 - npm
+- Core Wallet or MetaMask for the claim flow
 
-Install dependencies:
+Install dependencies and start the site:
 
 ```bash
 npm install
-```
-
-Start the development server:
-
-```bash
 npm run dev
 ```
 
@@ -95,7 +69,49 @@ Open the local address printed in the terminal, normally:
 http://127.0.0.1:5173/
 ```
 
-Do not open `index.html` directly with a `file://` address. Vite projects must run through the development server.
+Do not open `index.html` with a `file://` address. Vite projects need the development server.
+
+## Compile the Contract
+
+```bash
+npm run contract:compile
+```
+
+The generated ABI and bytecode are written to:
+
+```text
+src/contracts/RewardCampaign.json
+```
+
+## Deploy to Avalanche Fuji
+
+Use a new test-only wallet. Never commit a private key or paste one into chat.
+
+1. Copy `.env.example` to `.env`.
+2. Add Fuji test AVAX to the deployer wallet from the [Core testnet faucet](https://core.app/tools/testnet-faucet/).
+3. Fill in the deployment values locally.
+4. Load the values into your terminal and deploy:
+
+```bash
+set -a
+source .env
+set +a
+npm run contract:deploy:fuji
+```
+
+After deployment, copy the reported address into:
+
+```text
+VITE_REWARD_CAMPAIGN_ADDRESS=0x...
+```
+
+Rebuild or restart the development server. The claim button will then use the live Fuji contract.
+
+Default deployment settings in `.env.example`:
+
+- Reward per wallet: `0.01 AVAX`
+- Campaign funding: `1 AVAX`
+- Duration: `30 days`
 
 ## Production Build
 
@@ -103,39 +119,37 @@ Do not open `index.html` directly with a `file://` address. Vite projects must r
 npm run build
 ```
 
-The generated site is written to the `dist` directory.
+The generated website is written to `dist`.
 
 ## Project Structure
 
 ```text
 web3-learning/
-├── public/                 Static icons and assets
+├── contracts/
+│   └── RewardCampaign.sol
+├── scripts/
+│   ├── compile-contract.mjs
+│   └── deploy-fuji.mjs
 ├── src/
-│   ├── assets/             Image assets
-│   ├── main.js             Application interface and interactions
-│   └── style.css           Product styling and responsive layout
-├── worker/
-│   └── index.js            Deployment worker entry point
-├── index.html              HTML entry point
-├── package.json            Dependencies and scripts
-└── vite.config.js          Vite build configuration
+│   ├── contracts/RewardCampaign.json
+│   ├── main.js
+│   ├── style.css
+│   └── web3.js
+├── worker/index.js
+├── .env.example
+├── index.html
+├── package.json
+└── vite.config.js
 ```
 
-## Reward Safety Rules
+## Hackathon Safety Boundaries
 
-The production version should include:
+- Testnet only; no real-money rewards
+- One wallet can claim only once per campaign contract
+- Campaign payouts cannot exceed the contract balance
+- No deposit requirement
+- No referral pyramid or multi-level commission
+- Email retention automation remains a product mock-up
+- NewMoney and company APIs remain out of scope for this version
 
-- A unique database constraint on `campaign_id + account_id`.
-- A total campaign budget and daily spending limit.
-- Atomic claim and budget updates.
-- Rate limiting and suspicious-account detection.
-- Verified email or wallet ownership.
-- Clear email consent and unsubscribe controls.
-- No user deposit requirement and no multi-level commission structure.
-
-## Hackathon Team
-
-Built for the Web3NZ Hackathon.
-
-GitHub owner: [Jinhang2007](https://github.com/Jinhang2007)
-
+Built for the Web3NZ Hackathon by [Jinhang2007](https://github.com/Jinhang2007).
