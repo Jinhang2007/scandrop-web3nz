@@ -7,16 +7,19 @@
     "dev": "vite",
     "contract:compile": "node scripts/compile-contract.mjs",
     "contract:deploy:fuji": "node scripts/deploy-fuji.mjs",
+    "db:generate": "drizzle-kit generate",
     "build": "npm run contract:compile && vite build && mkdir -p dist/server && cp worker/index.js dist/server/index.js",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "drizzle-kit": "^0.31.10",
     "solc": "^0.8.36",
     "vite": "^8.1.1"
   },
   "dependencies": {
     "@reown/appkit": "^1.8.23",
     "@reown/appkit-adapter-ethers": "^1.8.23",
+    "drizzle-orm": "^0.45.2",
     "ethers": "^6.17.0",
     "qrcode": "^1.5.4"
   },

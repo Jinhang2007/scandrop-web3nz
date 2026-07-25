@@ -2,7 +2,7 @@
 
 ScanDrop is a Web3NZ Hackathon prototype for turning QR-code scans into measurable, returning users with native AVAX rewards on Avalanche Fuji.
 
-> Scan once. Connect a wallet. Claim test AVAX once.
+> Scan once. Register. Connect a wallet. Claim test AVAX once.
 
 ## Live Demo
 
@@ -18,6 +18,9 @@ This version implements the Avalanche path only:
 - One successful claim per wallet address
 - Live wallet connection with Core Wallet or MetaMask
 - Mobile Core connection through WalletConnect/Reown AppKit
+- ScanDrop profile registration backed by a hosted D1 database
+- One ScanDrop account and one wallet link per campaign
+- Claim transaction receipts saved to the registered profile
 - Public transaction links through the Fuji explorer
 
 USDC is not used in this test. The previously discussed NewMoney integration (step 8) is intentionally not included.
@@ -28,14 +31,19 @@ Fuji AVAX has no real-world value and is used only for testing.
 
 1. The organiser deploys `RewardCampaign` to Avalanche Fuji and funds it with test AVAX.
 2. ScanDrop generates a campaign QR code.
-3. A user scans the code and opens the claim screen.
-4. The user connects Core Wallet or MetaMask.
-5. ScanDrop switches the wallet to Avalanche Fuji.
-6. The contract checks that the wallet has not claimed before and that funding remains.
-7. The contract transfers a fixed amount of native test AVAX.
-8. The UI displays the confirmed transaction and Fuji explorer link.
+3. A user scans the code and creates a ScanDrop profile with an email address.
+4. ScanDrop creates one registration record for that account and campaign.
+5. The user connects Core Wallet or MetaMask.
+6. ScanDrop links that wallet to the registration and switches it to Avalanche Fuji.
+7. The contract checks that the wallet has not claimed before and that funding remains.
+8. The contract transfers a fixed amount of native test AVAX.
+9. ScanDrop saves the confirmed transaction to the registered profile and displays the Fuji explorer link.
 
-The contract enforces one claim per wallet address. It does not prove that two wallets belong to two different people; stronger Sybil protection is a later production concern.
+The database prevents the same email or wallet from creating multiple registrations in one campaign, and the contract independently enforces one successful claim per wallet address. This still does not prove that two emails and wallets belong to different people; stronger identity or Sybil protection is a later production concern.
+
+This Hackathon account is a lightweight test profile, not a password-based
+authentication system. Email delivery and account verification remain later
+production integrations.
 
 ## Smart Contract
 
@@ -160,12 +168,17 @@ The generated website is written to `dist`.
 web3-learning/
 ├── contracts/
 │   └── RewardCampaign.sol
+├── db/
+│   └── schema.ts
+├── drizzle/
+│   └── 0000_short_bromley.sql
 ├── scripts/
 │   ├── compile-contract.mjs
 │   └── deploy-fuji.mjs
 ├── src/
 │   ├── contracts/RewardCampaign.json
 │   ├── main.js
+│   ├── registration.js
 │   ├── style.css
 │   ├── walletconnect.js
 │   └── web3.js
@@ -183,7 +196,7 @@ web3-learning/
 - Campaign payouts cannot exceed the contract balance
 - No deposit requirement
 - No referral pyramid or multi-level commission
-- Email retention automation remains a product mock-up
+- Registration and claim receipts are stored; automated email sending remains a later integration
 - NewMoney and company APIs remain out of scope for this version
 
 Built for the Web3NZ Hackathon by [Jinhang2007](https://github.com/Jinhang2007).

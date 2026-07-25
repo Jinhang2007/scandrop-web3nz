@@ -207,6 +207,16 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
 .coin-orbit i:nth-of-type(1) { top: 6px; right: 25px; }
 .coin-orbit i:nth-of-type(2) { bottom: 21px; left: -2px; background: var(--orange); }
 .coin-orbit i:nth-of-type(3) { bottom: 4px; right: 29px; background: var(--cyan); }
+.profile-orbit {
+  width: 112px; height: 112px; margin: 25px auto 20px; border: 1px solid #d9edaa;
+  border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle, #fff 32%, var(--lime-soft) 100%);
+}
+.profile-orbit span {
+  width: 66px; height: 66px; border-radius: 20px; display: grid; place-items: center;
+  background: var(--ink); color: var(--lime); font: 500 20px 'DM Mono', monospace;
+  box-shadow: 0 12px 28px rgba(11,13,12,.18);
+}
 .avax-orbit { border-color: #f0c9c9; background: radial-gradient(circle, #fff 35%, var(--avax-soft) 100%); }
 .compact-orbit { width: 112px; height: 112px; margin: 21px auto 17px; }
 .compact-orbit .coin { width: 66px; height: 66px; font-size: 25px; }
@@ -219,12 +229,41 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
 .wallet-card small, .wallet-card strong { display: block; }
 .wallet-card small { color: #8b928c; font-size: 8px; }
 .wallet-card strong { font-size: 10px; margin-top: 2px; }
+.profile-chip {
+  display: grid; grid-template-columns: 35px 1fr auto; align-items: center; gap: 9px;
+  margin-top: 9px; padding: 10px 11px; border: 1px solid #d8e9ad; border-radius: 10px;
+  background: var(--lime-soft); text-align: left;
+}
+.profile-chip > span {
+  width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--ink); color: var(--lime); font: 500 9px 'DM Mono', monospace;
+}
+.profile-chip small, .profile-chip strong { display: block; }
+.profile-chip small { color: #71804f; font-size: 7px; }
+.profile-chip strong { max-width: 190px; margin-top: 2px; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-chip b { color: #438954; font-size: 7px; }
 .eligible { color: #438954; background: #e7f8ea; border-radius: 12px; padding: 5px 7px; font-size: 7px; font-weight: 800; }
 .eligible.used { color: #a06b30; background: #fff0dc; }
 .wallet-error {
   margin: 11px 0 0; padding: 9px 10px; border: 1px solid #efc5c5; border-radius: 8px;
   background: var(--avax-soft); color: #9b4748; font-size: 9px; line-height: 1.45; text-align: left;
 }
+.registration-form { display: grid; gap: 10px; text-align: left; }
+.registration-form label { display: grid; gap: 5px; color: #565d57; font-size: 9px; font-weight: 700; }
+.registration-form label > span small { color: #979d97; font-weight: 500; }
+.registration-form input:not([type='checkbox']) {
+  width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px;
+  background: #fff; color: var(--ink); outline: none; font-size: 10px;
+}
+.registration-form input:not([type='checkbox']):focus {
+  border-color: #90ab51; box-shadow: 0 0 0 3px rgba(201,245,99,.22);
+}
+.registration-form .consent-row {
+  grid-template-columns: 17px 1fr; align-items: start; gap: 8px; padding: 9px;
+  border-radius: 9px; background: #f0f2ed; color: #737a74; font-weight: 500; line-height: 1.45;
+}
+.consent-row input { width: 15px; height: 15px; margin: 0; accent-color: var(--ink); }
+.registration-form .claim-button { margin-top: 2px; }
 .contract-pending {
   display: grid; grid-template-columns: 26px 1fr; gap: 9px; margin-top: 11px; padding: 10px;
   border: 1px solid #f0d6b6; border-radius: 9px; background: #fff8ef; text-align: left;
@@ -273,6 +312,11 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
 .receipt div:last-child { border: 0; }
 .receipt span { color: #8a918a; }
 .receipt .confirmed { color: #3d8b4f; }
+.profile-sync {
+  margin-top: 10px; padding: 9px 10px; border-radius: 8px; font-size: 8px; line-height: 1.45;
+}
+.profile-sync.success { color: #347847; background: #eef9f0; border: 1px solid #b9dbbe; }
+.profile-sync.warning { color: #8a5d29; background: #fff8ef; border: 1px solid #efd5b5; }
 .avax-success { background: var(--avax-soft); border-color: #f2cccc; }
 .avax-success span { background: var(--avax); color: #fff; }
 .explorer-button { display: block; text-decoration: none; }

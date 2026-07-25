@@ -20,6 +20,11 @@ import {
   isWalletConnectConfigured,
   preloadWalletConnect,
 } from './walletconnect.js'
+import {
+  linkRegistrationWallet,
+  recordRegistrationClaim,
+  registerScanDropProfile,
+} from './registration.js'
 
 const icons = {
   overview: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>',
@@ -51,6 +56,49 @@ const walletState = {
   connectionType: '',
   busy: false,
   error: '',
+}
+
+const profileStorageKey = 'scandrop:profile'
+
+function loadSavedProfile() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(profileStorageKey) || 'null')
+    return saved?.campaignId === campaign.id ? saved : null
+  } catch {
+    return null
+  }
+}
+
+const savedProfile = loadSavedProfile()
+const accountState = {
+  registrationId: savedProfile?.registrationId || '',
+  userId: savedProfile?.userId || '',
+  email: savedProfile?.email || '',
+  displayName: savedProfile?.displayName || '',
+  campaignId: savedProfile?.campaignId || campaign.id,
+  walletAddress: savedProfile?.walletAddress || '',
+  walletLinked: Boolean(savedProfile?.walletAddress),
+  claimStatus: savedProfile?.claimStatus || 'registered',
+  busy: false,
+  error: '',
+}
+
+function saveProfile() {
+  const profile = {
+    registrationId: accountState.registrationId,
+    userId: accountState.userId,
+    email: accountState.email,
+    displayName: accountState.displayName,
+    campaignId: accountState.campaignId,
+    walletAddress: accountState.walletAddress,
+    claimStatus: accountState.claimStatus,
+  }
+
+  try {
+    window.localStorage.setItem(profileStorageKey, JSON.stringify(profile))
+  } catch {
+    // The D1 database remains authoritative if browser storage is unavailable.
+  }
 }
 
 const app = document.querySelector('#app')
@@ -321,6 +369,7 @@ function friendlyWalletError(error) {
 
 function claimAvailability() {
   const snapshot = walletState.campaign
+  if (!accountState.walletLinked) return { label: 'ScanDrop account link required', disabled: true }
   if (!isContractConfigured) return { label: 'Contract deployment required', disabled: true }
   if (!snapshot) return { label: 'Checking eligibility…', disabled: true }
   if (snapshot.paused) return { label: 'Campaign paused', disabled: true }
@@ -330,16 +379,116 @@ function claimAvailability() {
   return { label: `Claim ${Number(snapshot.rewardAmount).toFixed(3)} AVAX`, disabled: false }
 }
 
+async function handleRegistrationSubmit(event) {
+  event.preventDefault()
+  const data = new FormData(event.currentTarget)
+  accountState.busy = true
+  accountState.error = ''
+  renderClaimExperience()
+
+  try {
+    const registration = await registerScanDropProfile({
+      email: data.get('email'),
+      displayName: data.get('displayName'),
+      campaignId: campaign.id,
+      marketingConsent: data.get('marketingConsent') === 'on',
+    })
+
+    accountState.registrationId = registration.id
+    accountState.userId = registration.userId
+    accountState.email = registration.email
+    accountState.displayName = registration.displayName
+    accountState.campaignId = registration.campaignId
+    accountState.walletAddress = registration.walletAddress || ''
+    accountState.walletLinked = Boolean(registration.walletAddress)
+    accountState.claimStatus = registration.claimStatus || 'registered'
+    saveProfile()
+  } catch (error) {
+    accountState.error = error?.message || 'ScanDrop registration failed.'
+  } finally {
+    accountState.busy = false
+    renderClaimExperience()
+  }
+}
+
+async function changeScanDropProfile() {
+  if (walletState.connectionType === 'walletconnect') {
+    await disconnectWalletConnect().catch(() => {})
+  }
+
+  Object.assign(accountState, {
+    registrationId: '',
+    userId: '',
+    email: '',
+    displayName: '',
+    campaignId: campaign.id,
+    walletAddress: '',
+    walletLinked: false,
+    claimStatus: 'registered',
+    busy: false,
+    error: '',
+  })
+  try {
+    window.localStorage.removeItem(profileStorageKey)
+  } catch {
+    // Continue with the in-memory reset when browser storage is unavailable.
+  }
+
+  walletState.address = ''
+  walletState.balance = ''
+  walletState.signer = null
+  walletState.campaign = null
+  walletState.connectionType = ''
+  walletState.error = ''
+  renderClaimExperience()
+}
+
 function renderClaimExperience() {
   const content = document.querySelector('#claim-content')
 
+  if (!accountState.registrationId) {
+    content.innerHTML = `
+      <span class="drop-badge">STEP 1 OF 3 · SCANDROP ACCOUNT</span>
+      <div class="profile-orbit"><span>SD</span></div>
+      <h2>Create your ScanDrop profile.</h2>
+      <p>Register once so this reward can become the start of a longer relationship.</p>
+      ${accountState.error ? `<div class="wallet-error">${escapeHtml(accountState.error)}</div>` : ''}
+      <form class="registration-form" id="registration-form">
+        <label>
+          <span>Name <small>optional</small></span>
+          <input name="displayName" autocomplete="name" maxlength="80" value="${escapeHtml(accountState.displayName)}" placeholder="Your name">
+        </label>
+        <label>
+          <span>Email</span>
+          <input name="email" type="email" autocomplete="email" maxlength="254" value="${escapeHtml(accountState.email)}" placeholder="you@example.com" required>
+        </label>
+        <label class="consent-row">
+          <input name="marketingConsent" type="checkbox" required>
+          <span>I agree to receive ScanDrop reward reminders and product updates. I can unsubscribe later.</span>
+        </label>
+        <button class="claim-button" type="submit" ${accountState.busy ? 'disabled' : ''}>
+          ${accountState.busy ? 'Creating account…' : 'Create account & continue'}
+        </button>
+      </form>
+      <small class="claim-note">Test profile only · No password required · Email delivery will be connected later.</small>
+    `
+    document
+      .querySelector('#registration-form')
+      .addEventListener('submit', handleRegistrationSubmit)
+    return
+  }
+
   if (!walletState.address) {
     content.innerHTML = `
-      <span class="drop-badge">AVALANCHE FUJI DROP</span>
+      <span class="drop-badge">STEP 2 OF 3 · CONNECT WALLET</span>
       <div class="coin-orbit avax-orbit"><span class="coin avax-coin">A</span><i></i><i></i><i></i></div>
       <h2>Claim native test AVAX.</h2>
-      <p>Connect Core mobile through WalletConnect, or use a browser wallet extension. ScanDrop will switch you to Fuji.</p>
-      ${walletState.error ? `<div class="wallet-error">${walletState.error}</div>` : ''}
+      <p><strong>${escapeHtml(accountState.email)}</strong> is registered. ${
+        accountState.walletAddress
+          ? `Reconnect ${formatAddress(accountState.walletAddress)} to continue.`
+          : 'Connect Core mobile and ScanDrop will switch you to Fuji.'
+      }</p>
+      ${walletState.error ? `<div class="wallet-error">${escapeHtml(walletState.error)}</div>` : ''}
       <div class="wallet-connect-options">
         <button class="claim-button walletconnect-button" id="connect-walletconnect" ${walletState.busy || !isWalletConnectConfigured ? 'disabled' : ''}>
           <span class="connect-icon">◎</span>
@@ -357,6 +506,7 @@ function renderClaimExperience() {
         </div>
       ` : ''}
       <a class="switch-account faucet-link" href="${FUJI_NETWORK.faucetUrl}" target="_blank" rel="noreferrer">Get test AVAX for gas ↗</a>
+      <button class="switch-account" id="change-profile">Use a different ScanDrop account</button>
       <small class="claim-note">Fuji tokens are for testing only and have no real-world value.</small>
     `
     document.querySelector('#connect-walletconnect').addEventListener('click', () => {
@@ -365,6 +515,7 @@ function renderClaimExperience() {
     document.querySelector('#connect-extension').addEventListener('click', () => {
       handleWalletConnect('injected')
     })
+    document.querySelector('#change-profile').addEventListener('click', changeScanDropProfile)
     return
   }
 
@@ -376,7 +527,7 @@ function renderClaimExperience() {
       : 'Setup pending'
 
   content.innerHTML = `
-    <span class="drop-badge">AVALANCHE FUJI DROP</span>
+    <span class="drop-badge">STEP 3 OF 3 · CLAIM REWARD</span>
     <div class="coin-orbit compact-orbit"><span class="coin avax-coin">A</span><i></i><i></i><i></i></div>
     <h2>${campaign.reward.toFixed(3)} AVAX is waiting.</h2>
     <p>Your connected wallet is on Fuji. The smart contract will enforce one successful claim per address.</p>
@@ -385,17 +536,19 @@ function renderClaimExperience() {
       <div><small>Fuji wallet · ${Number(walletState.balance).toFixed(4)} AVAX</small><strong>${formatAddress(walletState.address)}</strong></div>
       <span class="eligible ${availability.disabled ? 'used' : ''}">${eligibilityLabel}</span>
     </div>
+    <div class="profile-chip"><span>SD</span><div><small>ScanDrop account</small><strong>${escapeHtml(accountState.email)}</strong></div><b>Registered</b></div>
     ${!isContractConfigured ? `
       <div class="contract-pending">
         <span>◌</span>
         <div><strong>Contract deployment pending</strong><p>The wallet connection is live. Add the Fuji contract address to enable claims.</p></div>
       </div>
     ` : ''}
-    ${walletState.error ? `<div class="wallet-error">${walletState.error}</div>` : ''}
+    ${walletState.error ? `<div class="wallet-error">${escapeHtml(walletState.error)}</div>` : ''}
     <button class="claim-button" id="claim-reward" ${availability.disabled || walletState.busy ? 'disabled' : ''}>
       ${walletState.busy ? 'Waiting for Fuji confirmation…' : availability.label}
     </button>
     <button class="switch-account" id="disconnect-view">Connect a different wallet</button>
+    <button class="switch-account" id="change-profile">Use a different ScanDrop account</button>
     <small class="claim-note">Network: Avalanche Fuji C-Chain · Chain ID 43113</small>
   `
 
@@ -412,6 +565,7 @@ function renderClaimExperience() {
     walletState.error = ''
     renderClaimExperience()
   })
+  document.querySelector('#change-profile').addEventListener('click', changeScanDropProfile)
 }
 
 async function handleWalletConnect(connectionType) {
@@ -438,7 +592,16 @@ async function handleWalletConnect(connectionType) {
   }
 }
 
-async function applyConnectedWallet(wallet, connectionType) {
+async function applyConnectedWallet(wallet, connectionType, { linkProfile = true } = {}) {
+  if (linkProfile && accountState.registrationId) {
+    await linkRegistrationWallet(accountState.registrationId, wallet.address)
+    accountState.walletAddress = wallet.address.toLowerCase()
+    accountState.walletLinked = true
+    accountState.claimStatus =
+      accountState.claimStatus === 'claimed' ? 'claimed' : 'wallet_connected'
+    saveProfile()
+  }
+
   walletState.address = wallet.address
   walletState.balance = wallet.balance
   walletState.signer = wallet.signer
@@ -454,7 +617,21 @@ async function handleOnChainClaim() {
   try {
     const result = await claimReward(walletState.signer)
     walletState.campaign = await readCampaign(walletState.address)
-    renderClaimSuccess(result)
+
+    let profileSynced = true
+    try {
+      await recordRegistrationClaim(
+        accountState.registrationId,
+        walletState.address,
+        result.hash,
+      )
+      accountState.claimStatus = 'claimed'
+      saveProfile()
+    } catch {
+      profileSynced = false
+    }
+
+    renderClaimSuccess(result, profileSynced)
     await syncCampaignFromChain()
   } catch (error) {
     walletState.error = friendlyWalletError(error)
@@ -463,7 +640,7 @@ async function handleOnChainClaim() {
   }
 }
 
-function renderClaimSuccess(result) {
+function renderClaimSuccess(result, profileSynced) {
   walletState.busy = false
   document.querySelector('#claim-content').innerHTML = `
     <span class="drop-badge success">FUJI TRANSACTION CONFIRMED</span>
@@ -471,11 +648,17 @@ function renderClaimSuccess(result) {
     <h2>Your AVAX arrived.</h2>
     <p>The native test AVAX reward was transferred by the ScanDrop smart contract.</p>
     <div class="receipt">
+      <div><span>ScanDrop account</span><strong>${escapeHtml(accountState.email)}</strong></div>
       <div><span>Wallet</span><strong>${formatAddress(walletState.address)}</strong></div>
       <div><span>Status</span><strong class="confirmed">● Confirmed</strong></div>
       <div><span>Block</span><strong>${result.blockNumber}</strong></div>
       <div><span>Network</span><strong>Avalanche Fuji</strong></div>
     </div>
+    ${profileSynced ? `
+      <div class="profile-sync success">✓ Reward saved to your ScanDrop profile</div>
+    ` : `
+      <div class="profile-sync warning">The AVAX transfer succeeded, but ScanDrop could not save the receipt. Your explorer transaction remains the proof.</div>
+    `}
     <a class="claim-button explorer-button" href="${transactionUrl(result.hash)}" target="_blank" rel="noreferrer">View transaction ↗</a>
     <button class="switch-account" id="finish-claim">Done</button>
     <small class="claim-note">The RewardClaimed event is now part of the public campaign record.</small>
@@ -635,7 +818,7 @@ document.querySelector('#campaign-form').addEventListener('submit', async (event
         connectionType === 'injected'
           ? await connectWallet()
           : await connectWalletConnect()
-      await applyConnectedWallet(wallet, connectionType)
+      await applyConnectedWallet(wallet, connectionType, { linkProfile: false })
       campaignDialog.showModal()
     }
 

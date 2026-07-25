@@ -1,0 +1,49 @@
+import { sql } from 'drizzle-orm'
+import {
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core'
+
+export const users = sqliteTable(
+  'users',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    displayName: text('display_name').notNull().default(''),
+    marketingConsent: integer('marketing_consent', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [uniqueIndex('users_email_unique').on(table.email)],
+)
+
+export const campaignRegistrations = sqliteTable(
+  'campaign_registrations',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    campaignId: text('campaign_id').notNull(),
+    walletAddress: text('wallet_address'),
+    claimTxHash: text('claim_tx_hash'),
+    claimStatus: text('claim_status').notNull().default('registered'),
+    registeredAt: text('registered_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+    walletLinkedAt: text('wallet_linked_at'),
+    claimedAt: text('claimed_at'),
+    updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex('campaign_registration_user_unique').on(
+      table.userId,
+      table.campaignId,
+    ),
+    uniqueIndex('campaign_registration_wallet_unique')
+      .on(table.walletAddress, table.campaignId)
+      .where(sql`${table.walletAddress} IS NOT NULL`),
+  ],
+)
