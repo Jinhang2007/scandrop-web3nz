@@ -9,6 +9,7 @@ export const isWalletConnectConfigured = projectId.length > 0
 let appKit
 let fujiNetwork
 let appKitPromise
+const sessionResetTimeoutMs = 4_000
 
 async function getAppKit() {
   if (appKit) return appKit
@@ -69,12 +70,46 @@ function getConnectedProvider(modal) {
   return provider && account?.isConnected && account.address ? provider : null
 }
 
+function delay(timeoutMs) {
+  return new Promise((resolve) => window.setTimeout(resolve, timeoutMs))
+}
+
+async function waitForSessionState(modal, shouldBeConnected) {
+  const deadline = Date.now() + sessionResetTimeoutMs
+
+  while (Date.now() < deadline) {
+    const isConnected = Boolean(getConnectedProvider(modal))
+    if (isConnected === shouldBeConnected) return
+    await delay(100)
+  }
+
+  if (!shouldBeConnected && getConnectedProvider(modal)) {
+    throw new Error(
+      'ScanDrop could not clear the previous Core session. Disconnect ScanDrop in Core and try again.',
+    )
+  }
+}
+
+async function resetWalletConnectSession(modal) {
+  await Promise.resolve(modal.close()).catch(() => {})
+
+  const account = modal.getAccount?.('eip155')
+  if (account?.status === 'reconnecting' || account?.status === 'connecting') {
+    await waitForSessionState(modal, true).catch(() => {})
+  }
+
+  if (getConnectedProvider(modal)) {
+    await modal.disconnect('eip155')
+    await waitForSessionState(modal, false)
+  }
+}
+
 async function finishConnection(modal, provider) {
   await modal.switchNetwork(fujiNetwork)
   return connectEip1193Wallet(provider, { requestAccounts: false })
 }
 
-export async function connectWalletConnect() {
+export async function connectWalletConnect({ forceNewSession = false } = {}) {
   if (!isWalletConnectConfigured) {
     throw new Error(
       'WalletConnect needs a Reown Project ID before mobile wallets can connect.',
@@ -82,7 +117,13 @@ export async function connectWalletConnect() {
   }
 
   const modal = await getAppKit()
-  const connectedProvider = getConnectedProvider(modal)
+  if (forceNewSession) {
+    await resetWalletConnectSession(modal)
+  }
+
+  const connectedProvider = forceNewSession
+    ? null
+    : getConnectedProvider(modal)
   if (connectedProvider) {
     return finishConnection(modal, connectedProvider)
   }
@@ -179,5 +220,6 @@ export async function connectWalletConnect() {
 }
 
 export async function disconnectWalletConnect() {
-  await appKit?.disconnect('eip155')
+  const modal = appKit || (await getAppKit())
+  await resetWalletConnectSession(modal)
 }

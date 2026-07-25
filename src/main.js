@@ -26,6 +26,7 @@ import {
   isWalletConnectConfigured,
   preloadWalletConnect,
 } from './walletconnect.js'
+import { shouldStartFreshWalletSession } from './wallet-session-policy.js'
 import {
   activateGaslessCampaign,
   getActiveCampaign,
@@ -763,6 +764,7 @@ function renderClaimExperience() {
 }
 
 async function handleWalletConnect(connectionType) {
+  const previousConnectionError = walletState.error
   walletState.busy = true
   walletState.error = ''
   renderClaimExperience()
@@ -771,14 +773,31 @@ async function handleWalletConnect(connectionType) {
     claimDialog.close()
   }
 
+  let connectedWallet
+
   try {
-    const wallet =
+    connectedWallet =
       connectionType === 'walletconnect'
-        ? await connectWalletConnect()
+        ? await connectWalletConnect({
+            forceNewSession: shouldStartFreshWalletSession({
+              linkedWalletAddress: accountState.walletAddress,
+              previousConnectionError,
+            }),
+          })
         : await connectWallet()
-    await applyConnectedWallet(wallet, connectionType)
+    await applyConnectedWallet(connectedWallet, connectionType)
   } catch (error) {
-    walletState.error = friendlyWalletError(error)
+    if (connectionType === 'walletconnect' && connectedWallet) {
+      await disconnectWalletConnect().catch(() => {})
+    }
+
+    if (error?.status === 409 && connectedWallet?.address) {
+      walletState.error =
+        `Core returned ${formatAddress(connectedWallet.address)}, which is already linked to another ScanDrop account. ` +
+        'The old WalletConnect session has been cleared; reconnect and approve the other Core account.'
+    } else {
+      walletState.error = friendlyWalletError(error)
+    }
   } finally {
     walletState.busy = false
     if (!claimDialog.open) claimDialog.showModal()
