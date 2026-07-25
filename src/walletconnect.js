@@ -50,9 +50,17 @@ async function getAppKit() {
     })
 
     return appKit
+  }).catch((error) => {
+    appKitPromise = null
+    throw error
   })
 
   return appKitPromise
+}
+
+export async function preloadWalletConnect() {
+  if (!isWalletConnectConfigured) return
+  await getAppKit()
 }
 
 function getConnectedProvider(modal) {
@@ -86,23 +94,27 @@ export async function connectWalletConnect() {
     let connectedAddress
     let unsubscribeProviders
     let unsubscribeAccount
+    let unsubscribeState
+    let modalWasOpened = false
 
     const timeout = window.setTimeout(() => {
       finishWithError(
         new Error('WalletConnect timed out. Open Core and approve the connection.'),
       )
-    }, 120000)
+    }, 60000)
 
     function cleanup() {
       window.clearTimeout(timeout)
       if (typeof unsubscribeProviders === 'function') unsubscribeProviders()
       if (typeof unsubscribeAccount === 'function') unsubscribeAccount()
+      if (typeof unsubscribeState === 'function') unsubscribeState()
     }
 
     function finishWithError(error) {
       if (settled) return
       settled = true
       cleanup()
+      Promise.resolve(modal.close()).catch(() => {})
       reject(error)
     }
 
@@ -136,6 +148,29 @@ export async function connectWalletConnect() {
         account?.isConnected && account.address ? account.address : ''
       tryFinishConnection()
     }, 'eip155')
+
+    unsubscribeState = modal.subscribeState(({ open }) => {
+      if (open) {
+        modalWasOpened = true
+        return
+      }
+
+      if (!modalWasOpened || settled || connecting) return
+
+      window.setTimeout(() => {
+        if (settled || connecting) return
+
+        const account = modal.getAccount?.('eip155')
+        const provider = modal.getWalletProvider?.()
+        if (account?.isConnected && account.address && provider) {
+          currentProvider = provider
+          connectedAddress = account.address
+          tryFinishConnection()
+        } else {
+          finishWithError(new Error('Wallet connection was cancelled.'))
+        }
+      }, 300)
+    })
 
     Promise.resolve(modal.open({ view: 'Connect', namespace: 'eip155' })).catch(
       finishWithError,

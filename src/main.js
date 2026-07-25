@@ -15,6 +15,7 @@ import {
   connectWalletConnect,
   disconnectWalletConnect,
   isWalletConnectConfigured,
+  preloadWalletConnect,
 } from './walletconnect.js'
 
 const icons = {
@@ -395,6 +396,10 @@ async function handleWalletConnect(connectionType) {
   walletState.error = ''
   renderClaimExperience()
 
+  if (connectionType === 'walletconnect' && claimDialog.open) {
+    claimDialog.close()
+  }
+
   try {
     const wallet =
       connectionType === 'walletconnect'
@@ -409,6 +414,7 @@ async function handleWalletConnect(connectionType) {
     walletState.error = friendlyWalletError(error)
   } finally {
     walletState.busy = false
+    if (!claimDialog.open) claimDialog.showModal()
     renderClaimExperience()
   }
 }
@@ -483,6 +489,7 @@ function openClaim() {
   walletState.error = ''
   renderClaimExperience()
   claimDialog.showModal()
+  preloadWalletConnect().catch(() => {})
 }
 
 document.querySelectorAll('#open-claim, #preview-claim').forEach((button) => {
