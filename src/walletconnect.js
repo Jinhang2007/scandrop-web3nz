@@ -56,8 +56,9 @@ async function getAppKit() {
 }
 
 function getConnectedProvider(modal) {
-  if (!modal.getIsConnected()) return null
-  return modal.getWalletProvider()
+  const provider = modal.getWalletProvider?.()
+  const account = modal.getAccount?.('eip155')
+  return provider && account?.isConnected && account.address ? provider : null
 }
 
 async function finishConnection(modal, provider) {
@@ -81,7 +82,10 @@ export async function connectWalletConnect() {
   return new Promise((resolve, reject) => {
     let connecting = false
     let settled = false
-    let unsubscribeProvider
+    let currentProvider
+    let connectedAddress
+    let unsubscribeProviders
+    let unsubscribeAccount
 
     const timeout = window.setTimeout(() => {
       finishWithError(
@@ -91,7 +95,8 @@ export async function connectWalletConnect() {
 
     function cleanup() {
       window.clearTimeout(timeout)
-      if (typeof unsubscribeProvider === 'function') unsubscribeProvider()
+      if (typeof unsubscribeProviders === 'function') unsubscribeProviders()
+      if (typeof unsubscribeAccount === 'function') unsubscribeAccount()
     }
 
     function finishWithError(error) {
@@ -115,18 +120,22 @@ export async function connectWalletConnect() {
       }
     }
 
-    unsubscribeProvider = modal.subscribeProvider(
-      ({ provider, error, isConnected }) => {
-        if (error) {
-          finishWithError(error)
-          return
-        }
+    function tryFinishConnection() {
+      if (currentProvider && connectedAddress) {
+        finishWithProvider(currentProvider)
+      }
+    }
 
-        if (isConnected && provider) {
-          finishWithProvider(provider)
-        }
-      },
-    )
+    unsubscribeProviders = modal.subscribeProviders((providers) => {
+      currentProvider = providers.eip155 || null
+      tryFinishConnection()
+    })
+
+    unsubscribeAccount = modal.subscribeAccount((account) => {
+      connectedAddress =
+        account?.isConnected && account.address ? account.address : ''
+      tryFinishConnection()
+    }, 'eip155')
 
     Promise.resolve(modal.open({ view: 'Connect', namespace: 'eip155' })).catch(
       finishWithError,
@@ -135,5 +144,5 @@ export async function connectWalletConnect() {
 }
 
 export async function disconnectWalletConnect() {
-  await appKit?.adapter?.connectionControllerClient?.disconnect()
+  await appKit?.disconnect('eip155')
 }
