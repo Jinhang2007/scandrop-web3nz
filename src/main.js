@@ -34,6 +34,7 @@ import {
   recordRegistrationClaim,
   registerScanDropProfile,
 } from './registration.js'
+import { getClaimFlowStep } from './claim-policy.js'
 
 const icons = {
   overview: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>',
@@ -593,8 +594,13 @@ async function changeScanDropProfile() {
 
 function renderClaimExperience() {
   const content = document.querySelector('#claim-content')
+  const flowStep = getClaimFlowStep({
+    registrationId: accountState.registrationId,
+    claimStatus: accountState.claimStatus,
+    connectedWallet: walletState.address,
+  })
 
-  if (!accountState.registrationId) {
+  if (flowStep === 'register') {
     content.innerHTML = `
       <span class="drop-badge">STEP 1 OF 3 · SCANDROP ACCOUNT</span>
       <div class="profile-orbit"><span>SD</span></div>
@@ -627,7 +633,35 @@ function renderClaimExperience() {
     return
   }
 
-  if (!walletState.address) {
+  if (flowStep === 'complete') {
+    content.innerHTML = `
+      <span class="drop-badge success">REWARD STATUS · COMPLETED</span>
+      <div class="profile-orbit complete-profile"><span>✓</span></div>
+      <h2>This account has already claimed.</h2>
+      <p><strong>${escapeHtml(accountState.email)}</strong> has already received its one reward for this campaign. No wallet connection or transaction is needed.</p>
+      <div class="profile-chip completed-profile-chip">
+        <span>SD</span>
+        <div><small>ScanDrop account</small><strong>${escapeHtml(accountState.email)}</strong></div>
+        <b>Reward used</b>
+      </div>
+      <div class="claim-complete-notice">
+        <span>✓</span>
+        <div>
+          <strong>No further action is required</strong>
+          <p>ScanDrop has stopped the claim flow to prevent a duplicate reward.</p>
+        </div>
+      </div>
+      <a class="claim-button home-button" href="/">Return to ScanDrop home</a>
+      <button class="switch-account" id="change-profile">Use a different ScanDrop account</button>
+      <small class="claim-note">One ScanDrop account · one campaign reward</small>
+    `
+    document
+      .querySelector('#change-profile')
+      .addEventListener('click', changeScanDropProfile)
+    return
+  }
+
+  if (flowStep === 'connect') {
     content.innerHTML = `
       <span class="drop-badge">STEP 2 OF 3 · CONNECT WALLET</span>
       <div class="coin-orbit avax-orbit"><span class="coin avax-coin">A</span><i></i><i></i><i></i></div>
