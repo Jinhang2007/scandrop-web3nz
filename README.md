@@ -17,6 +17,7 @@ This version implements the Avalanche path only:
 - A Solidity campaign contract funded with AVAX
 - One successful claim per wallet address
 - Live wallet connection with Core Wallet or MetaMask
+- Mobile Core connection through WalletConnect/Reown AppKit
 - Public transaction links through the Fuji explorer
 
 USDC is not used in this test. The previously discussed NewMoney integration (step 8) is intentionally not included.
@@ -55,6 +56,7 @@ Requirements:
 - Node.js
 - npm
 - Core Wallet or MetaMask for the claim flow
+- A free Reown Project ID for mobile WalletConnect
 
 Install dependencies and start the site:
 
@@ -70,6 +72,25 @@ http://127.0.0.1:5173/
 ```
 
 Do not open `index.html` with a `file://` address. Vite projects need the development server.
+
+## Enable WalletConnect
+
+Core mobile is not an injected browser wallet, so mobile connections use
+WalletConnect through Reown AppKit.
+
+1. Create a project at [Reown Dashboard](https://dashboard.reown.com/).
+2. Add the ScanDrop website domain to that project.
+3. Put the public project ID in `.env` to override the ScanDrop default:
+
+```text
+VITE_REOWN_PROJECT_ID=4bb6f3a43c511fbcedad4b5feff468d0
+```
+
+Restart or rebuild the website. The claim screen will then offer both
+`Core mobile / WalletConnect` and a browser-extension option.
+
+The Reown Project ID is a public application identifier. It is not a wallet
+private key or seed phrase.
 
 ## Compile the Contract
 
@@ -134,6 +155,7 @@ web3-learning/
 │   ├── contracts/RewardCampaign.json
 │   ├── main.js
 │   ├── style.css
+│   ├── walletconnect.js
 │   └── web3.js
 ├── worker/index.js
 ├── .env.example

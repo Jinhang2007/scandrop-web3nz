@@ -237,6 +237,32 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
 .contract-pending p { margin-top: 3px; color: #8a7965; font-size: 8px; line-height: 1.4; }
 .claim-button { width: 100%; border: 0; border-radius: 10px; padding: 13px; margin-top: 12px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 800; }
 .claim-button:disabled { background: #a8ada8; cursor: not-allowed; }
+.wallet-connect-options { display: grid; gap: 8px; margin-top: 12px; }
+.wallet-connect-options .claim-button { margin-top: 0; }
+.walletconnect-button, .extension-button {
+  display: grid; grid-template-columns: 32px 1fr; gap: 9px; align-items: center;
+  width: 100%; min-height: 55px; border-radius: 10px; padding: 9px 12px; text-align: left;
+}
+.walletconnect-button { background: var(--ink); color: #fff; border: 1px solid var(--ink); }
+.walletconnect-button:disabled { background: #a8ada8; border-color: #a8ada8; cursor: not-allowed; }
+.extension-button { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+.extension-button:disabled { color: #969c96; background: #f0f2ee; cursor: not-allowed; }
+.connect-icon {
+  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+  background: rgba(255,255,255,.12); font-size: 16px;
+}
+.extension-button .connect-icon { background: var(--avax-soft); color: var(--avax); }
+.walletconnect-button strong, .walletconnect-button small,
+.extension-button strong, .extension-button small { display: block; }
+.walletconnect-button strong, .extension-button strong { font-size: 10px; }
+.walletconnect-button small, .extension-button small { margin-top: 3px; color: #aeb4ae; font-size: 7px; font-weight: 500; }
+.extension-button small { color: #8c938d; }
+.walletconnect-setup {
+  display: grid; gap: 2px; margin-top: 9px; padding: 8px 10px; border-radius: 8px;
+  background: #fff8ef; border: 1px solid #f0d6b6; color: #885b29; text-align: left;
+}
+.walletconnect-setup strong { font-size: 8px; }
+.walletconnect-setup span { color: #9a8065; font-size: 7px; }
 .switch-account { border: 0; background: transparent; margin-top: 9px; color: #687069; font-size: 9px; text-decoration: underline; }
 .faucet-link { display: inline-block; }
 .claim-note { display: block; color: #9aa09a; margin-top: 18px; font-size: 7px; }

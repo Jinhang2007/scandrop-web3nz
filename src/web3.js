@@ -28,11 +28,17 @@ export const isContractConfigured = /^0x[a-fA-F0-9]{40}$/.test(
 )
 
 function getInjectedProvider() {
-  if (!window.ethereum) {
+  const provider = window.avalanche || window.ethereum
+
+  if (!provider) {
     throw new Error('Install Core Wallet or MetaMask to connect.')
   }
 
-  return window.ethereum
+  return provider
+}
+
+export function hasInjectedWallet() {
+  return Boolean(window.avalanche || window.ethereum)
 }
 
 export function formatAddress(address) {
@@ -44,9 +50,7 @@ export function transactionUrl(hash) {
   return `${FUJI_NETWORK.explorerUrl}/tx/${hash}`
 }
 
-export async function switchToFuji() {
-  const ethereum = getInjectedProvider()
-
+async function switchProviderToFuji(ethereum) {
   try {
     await ethereum.request({
       method: 'wallet_switchEthereumChain',
@@ -70,10 +74,18 @@ export async function switchToFuji() {
   }
 }
 
-export async function connectWallet() {
-  const ethereum = getInjectedProvider()
-  await ethereum.request({ method: 'eth_requestAccounts' })
-  await switchToFuji()
+export async function switchToFuji() {
+  await switchProviderToFuji(getInjectedProvider())
+}
+
+export async function connectEip1193Wallet(
+  ethereum,
+  { requestAccounts = true } = {},
+) {
+  if (requestAccounts) {
+    await ethereum.request({ method: 'eth_requestAccounts' })
+  }
+  await switchProviderToFuji(ethereum)
 
   const provider = new BrowserProvider(ethereum)
   const network = await provider.getNetwork()
@@ -92,6 +104,10 @@ export async function connectWallet() {
     provider,
     signer,
   }
+}
+
+export async function connectWallet() {
+  return connectEip1193Wallet(getInjectedProvider())
 }
 
 export async function readCampaign(account) {

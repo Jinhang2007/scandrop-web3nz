@@ -6,10 +6,16 @@ import {
   claimReward,
   connectWallet,
   formatAddress,
+  hasInjectedWallet,
   isContractConfigured,
   readCampaign,
   transactionUrl,
 } from './web3.js'
+import {
+  connectWalletConnect,
+  disconnectWalletConnect,
+  isWalletConnectConfigured,
+} from './walletconnect.js'
 
 const icons = {
   overview: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>',
@@ -38,6 +44,7 @@ const walletState = {
   balance: '',
   signer: null,
   campaign: null,
+  connectionType: '',
   busy: false,
   error: '',
 }
@@ -307,15 +314,33 @@ function renderClaimExperience() {
       <span class="drop-badge">AVALANCHE FUJI DROP</span>
       <div class="coin-orbit avax-orbit"><span class="coin avax-coin">A</span><i></i><i></i><i></i></div>
       <h2>Claim native test AVAX.</h2>
-      <p>Connect Core Wallet or MetaMask. ScanDrop will switch you to Fuji and check your wallet on-chain.</p>
+      <p>Connect Core mobile through WalletConnect, or use a browser wallet extension. ScanDrop will switch you to Fuji.</p>
       ${walletState.error ? `<div class="wallet-error">${walletState.error}</div>` : ''}
-      <button class="claim-button" id="connect-wallet" ${walletState.busy ? 'disabled' : ''}>
-        ${walletState.busy ? 'Connecting wallet…' : 'Connect wallet'}
-      </button>
+      <div class="wallet-connect-options">
+        <button class="claim-button walletconnect-button" id="connect-walletconnect" ${walletState.busy || !isWalletConnectConfigured ? 'disabled' : ''}>
+          <span class="connect-icon">◎</span>
+          <span><strong>${walletState.busy ? 'Waiting for wallet…' : 'Core mobile / WalletConnect'}</strong><small>Open Core on this phone or scan on desktop</small></span>
+        </button>
+        <button class="extension-button" id="connect-extension" ${walletState.busy || !hasInjectedWallet() ? 'disabled' : ''}>
+          <span class="connect-icon">◇</span>
+          <span><strong>Browser wallet extension</strong><small>${hasInjectedWallet() ? 'Core or MetaMask detected' : 'Available in a wallet-enabled desktop browser'}</small></span>
+        </button>
+      </div>
+      ${!isWalletConnectConfigured ? `
+        <div class="walletconnect-setup">
+          <strong>WalletConnect code is ready</strong>
+          <span>Add a Reown Project ID to activate the mobile connection.</span>
+        </div>
+      ` : ''}
       <a class="switch-account faucet-link" href="${FUJI_NETWORK.faucetUrl}" target="_blank" rel="noreferrer">Get test AVAX for gas ↗</a>
       <small class="claim-note">Fuji tokens are for testing only and have no real-world value.</small>
     `
-    document.querySelector('#connect-wallet').addEventListener('click', handleWalletConnect)
+    document.querySelector('#connect-walletconnect').addEventListener('click', () => {
+      handleWalletConnect('walletconnect')
+    })
+    document.querySelector('#connect-extension').addEventListener('click', () => {
+      handleWalletConnect('injected')
+    })
     return
   }
 
@@ -351,27 +376,35 @@ function renderClaimExperience() {
   `
 
   document.querySelector('#claim-reward').addEventListener('click', handleOnChainClaim)
-  document.querySelector('#disconnect-view').addEventListener('click', () => {
+  document.querySelector('#disconnect-view').addEventListener('click', async () => {
+    if (walletState.connectionType === 'walletconnect') {
+      await disconnectWalletConnect()
+    }
     walletState.address = ''
     walletState.balance = ''
     walletState.signer = null
     walletState.campaign = null
+    walletState.connectionType = ''
     walletState.error = ''
     renderClaimExperience()
   })
 }
 
-async function handleWalletConnect() {
+async function handleWalletConnect(connectionType) {
   walletState.busy = true
   walletState.error = ''
   renderClaimExperience()
 
   try {
-    const wallet = await connectWallet()
+    const wallet =
+      connectionType === 'walletconnect'
+        ? await connectWalletConnect()
+        : await connectWallet()
     walletState.address = wallet.address
     walletState.balance = wallet.balance
     walletState.signer = wallet.signer
     walletState.campaign = await readCampaign(wallet.address)
+    walletState.connectionType = connectionType
   } catch (error) {
     walletState.error = friendlyWalletError(error)
   } finally {
@@ -518,6 +551,7 @@ if (window.ethereum?.on) {
     walletState.balance = ''
     walletState.signer = null
     walletState.campaign = null
+    walletState.connectionType = ''
     if (claimDialog.open) renderClaimExperience()
   })
   window.ethereum.on('chainChanged', () => {
@@ -525,6 +559,7 @@ if (window.ethereum?.on) {
     walletState.balance = ''
     walletState.signer = null
     walletState.campaign = null
+    walletState.connectionType = ''
     walletState.error = ''
     if (claimDialog.open) renderClaimExperience()
   })
