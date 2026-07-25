@@ -8,6 +8,7 @@ import {
 } from 'ethers'
 import rewardCampaignArtifact from './contracts/RewardCampaign.json'
 import { calculateGasSponsorReserveAvax } from './campaign-economics.js'
+import { shouldSwitchNetwork } from './network-policy.js'
 
 export const FUJI_NETWORK = {
   chainId: 43113,
@@ -149,10 +150,15 @@ export async function connectEip1193Wallet(
   if (requestAccounts) {
     await ethereum.request({ method: 'eth_requestAccounts' })
   }
-  await switchProviderToFuji(ethereum)
 
-  const provider = new BrowserProvider(ethereum)
-  const network = await provider.getNetwork()
+  let provider = new BrowserProvider(ethereum)
+  let network = await provider.getNetwork()
+
+  if (shouldSwitchNetwork(network.chainId, FUJI_NETWORK.chainId)) {
+    await switchProviderToFuji(ethereum)
+    provider = new BrowserProvider(ethereum)
+    network = await provider.getNetwork()
+  }
 
   if (network.chainId !== BigInt(FUJI_NETWORK.chainId)) {
     throw new Error('Switch your wallet to Avalanche Fuji and try again.')

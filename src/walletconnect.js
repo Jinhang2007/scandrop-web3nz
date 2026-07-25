@@ -8,7 +8,6 @@ const projectId =
 export const isWalletConnectConfigured = projectId.length > 0
 
 let appKit
-let fujiNetwork
 let appKitPromise
 const sessionResetTimeoutMs = 4_000
 const connectionTimeoutMs = 180_000
@@ -23,7 +22,6 @@ async function getAppKit() {
     import('@reown/appkit-adapter-ethers'),
     import('@reown/appkit/networks'),
   ]).then(([{ createAppKit }, { EthersAdapter }, { avalancheFuji }]) => {
-    fujiNetwork = avalancheFuji
     const origin = window.location.origin
 
     appKit = createAppKit({
@@ -39,6 +37,7 @@ async function getAppKit() {
       },
       enableNetworkSwitch: false,
       enableMobileFullScreen: true,
+      experimental_preferUniversalLinks: true,
       features: {
         analytics: false,
         email: false,
@@ -108,8 +107,23 @@ async function resetWalletConnectSession(modal) {
 }
 
 async function finishConnection(modal, provider) {
-  await modal.switchNetwork(fujiNetwork)
+  await waitForPageResume()
+  await delay(250)
   return connectEip1193Wallet(provider, { requestAccounts: false })
+}
+
+async function waitForPageResume() {
+  if (document.visibilityState !== 'hidden') return
+
+  await new Promise((resolve) => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') return
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      resolve()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  })
 }
 
 export async function connectWalletConnect({ forceNewSession = false } = {}) {
