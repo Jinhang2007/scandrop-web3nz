@@ -20,6 +20,7 @@ This version implements the Avalanche path only:
 - Mobile Core connection through WalletConnect/Reown AppKit
 - ScanDrop profile registration backed by a hosted D1 database
 - One ScanDrop account and one wallet link per campaign
+- Gasless claims submitted by a dedicated ScanDrop relayer
 - Claim transaction receipts saved to the registered profile
 - A public claim-only route that never exposes the organiser dashboard
 - Organiser access gated by the connected campaign-owner wallet address
@@ -35,11 +36,12 @@ Fuji AVAX has no real-world value and is used only for testing.
 2. ScanDrop generates a campaign QR code.
 3. A user scans the code and creates a ScanDrop profile with an email address.
 4. ScanDrop creates one registration record for that account and campaign.
-5. The user connects Core Wallet or MetaMask.
+5. The user connects Core Wallet or MetaMask. The wallet may have a zero AVAX balance.
 6. ScanDrop links that wallet to the registration and switches it to Avalanche Fuji.
-7. The contract checks that the wallet has not claimed before and that funding remains.
-8. The contract transfers a fixed amount of native test AVAX.
-9. ScanDrop saves the confirmed transaction to the registered profile and displays the Fuji explorer link.
+7. The ScanDrop backend verifies the registration and asks its protected relayer to submit `claimFor`.
+8. The relayer pays the Fuji network fee; the new user does not sign or pay for the claim transaction.
+9. The contract checks that the wallet has not claimed before and that funding remains, then transfers a fixed amount of native test AVAX directly to that wallet.
+10. ScanDrop saves the confirmed transaction to the registered profile and displays the Fuji explorer link.
 
 The database prevents the same email or wallet from creating multiple registrations in one campaign, and the contract independently enforces one successful claim per wallet address. This still does not prove that two emails and wallets belong to different people; stronger identity or Sybil protection is a later production concern.
 
@@ -54,6 +56,8 @@ production integrations.
 - An immutable reward amount
 - A campaign end time
 - One-claim-per-wallet enforcement
+- Gas-sponsored `claimFor(address)` restricted to the configured relayer
+- An owner-controlled relayer address
 - Contract-balance-based campaign limits
 - Pause and campaign-extension controls for the owner
 - Withdrawal of unused funds only after pause or expiry
@@ -121,11 +125,13 @@ The preferred Hackathon flow is built into the website:
 1. Select **New campaign**.
 2. Set the reward, contract funding, and campaign duration.
 3. Select **Connect Core & deploy on Fuji**.
-4. Approve the wallet connection and deployment transaction in Core.
-5. The deployed address is added to the campaign URL and QR code automatically.
+4. Approve the wallet connection and one deployment transaction in Core.
+5. The deployment sends the campaign funding to the contract and a small gas reserve to the ScanDrop relayer.
+6. ScanDrop verifies the owner and relayer on Fuji, activates the campaign, and adds the address to the campaign URL and QR code.
 
 Use Fuji test AVAX only. The website never requests, stores, or transmits a
-wallet private key.
+user or organiser wallet private key. The dedicated relayer key is stored as an
+encrypted hosting secret and is never included in the website source.
 
 For a command-line deployment, use a new test-only wallet. Never commit a
 private key or paste one into chat.
@@ -152,8 +158,9 @@ Rebuild or restart the development server. The claim button will then use the li
 
 Default deployment settings in `.env.example`:
 
-- Reward per wallet: `0.01 AVAX`
-- Campaign funding: `1 AVAX`
+- Reward per wallet: `0.001 AVAX`
+- Campaign funding: `0.01 AVAX`
+- Relayer gas reserve: `0.005 AVAX`
 - Duration: `30 days`
 
 ## Production Build
@@ -195,6 +202,7 @@ web3-learning/
 
 - Testnet only; no real-money rewards
 - One wallet can claim only once per campaign contract
+- Claiming users can begin with zero AVAX; ScanDrop sponsors the network fee
 - Campaign payouts cannot exceed the contract balance
 - No deposit requirement
 - No referral pyramid or multi-level commission

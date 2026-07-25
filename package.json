@@ -8,7 +8,7 @@
     "contract:compile": "node scripts/compile-contract.mjs",
     "contract:deploy:fuji": "node scripts/deploy-fuji.mjs",
     "db:generate": "drizzle-kit generate",
-    "build": "npm run contract:compile && vite build && mkdir -p dist/server && cp worker/index.js dist/server/index.js",
+    "build": "npm run contract:compile && vite build && vite build --config vite.worker.config.js",
     "preview": "vite preview"
   },
   "devDependencies": {

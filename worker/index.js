@@ -1,7 +1,13 @@
+import { Contract, JsonRpcProvider, Wallet } from 'ethers'
+import rewardCampaignArtifact from '../src/contracts/RewardCampaign.json'
+
 const jsonHeaders = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
 }
+
+const defaultFujiRpcUrl = 'https://api.avax-test.network/ext/bc/C/rpc'
+const defaultAdminWallet = '0x4ee6b577a6e122bc3c92be2d64ca907af865d813'
 
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -210,6 +216,236 @@ async function recordClaim(request, env) {
   return json({ ok: true, claimStatus: 'claimed' })
 }
 
+async function getCampaign(env, campaignId) {
+  const campaign = await env.DB.prepare(
+    `SELECT id, contract_address AS contractAddress,
+            owner_address AS ownerAddress, relayer_address AS relayerAddress,
+            reward_amount_wei AS rewardAmountWei, status
+     FROM campaigns
+     WHERE id = ?1 AND status = 'active'`,
+  )
+    .bind(campaignId)
+    .first()
+
+  if (!campaign) {
+    return json({ error: 'Gasless campaign not found.' }, 404)
+  }
+
+  return json({ campaign })
+}
+
+async function activateCampaign(request, env) {
+  const payload = await readJson(request)
+  const campaignId = String(payload.campaignId || '').trim().slice(0, 120)
+  const contractAddress = String(payload.contractAddress || '').trim().toLowerCase()
+  const deploymentTxHash = String(payload.deploymentTransactionHash || '').trim()
+
+  if (
+    !campaignId ||
+    !isWalletAddress(contractAddress) ||
+    !isTransactionHash(deploymentTxHash)
+  ) {
+    return json({ error: 'Valid campaign deployment details are required.' }, 400)
+  }
+  if (!env.GASLESS_RELAYER_ADDRESS) {
+    return json({ error: 'The ScanDrop gas sponsor is not configured.' }, 503)
+  }
+
+  const provider = new JsonRpcProvider(env.FUJI_RPC_URL || defaultFujiRpcUrl)
+  const contract = new Contract(
+    contractAddress,
+    rewardCampaignArtifact.abi,
+    provider,
+  )
+  const [owner, relayer, rewardAmount, receipt] = await Promise.all([
+    contract.owner(),
+    contract.relayer(),
+    contract.rewardAmount(),
+    provider.getTransactionReceipt(deploymentTxHash),
+  ])
+  const allowedOwner = String(env.ADMIN_WALLET_ADDRESS || defaultAdminWallet).toLowerCase()
+  const allowedRelayer = String(env.GASLESS_RELAYER_ADDRESS).toLowerCase()
+
+  if (String(owner).toLowerCase() !== allowedOwner) {
+    return json({ error: 'The deployed contract is not owned by the ScanDrop organiser.' }, 403)
+  }
+  if (String(relayer).toLowerCase() !== allowedRelayer) {
+    return json({ error: 'The deployed contract does not use the ScanDrop gas sponsor.' }, 403)
+  }
+  if (
+    !receipt ||
+    Number(receipt.status) !== 1 ||
+    String(receipt.contractAddress || '').toLowerCase() !== contractAddress
+  ) {
+    return json({ error: 'The Fuji deployment transaction could not be verified.' }, 400)
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO campaigns
+      (id, contract_address, owner_address, relayer_address,
+       deployment_tx_hash, reward_amount_wei, status)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active')
+     ON CONFLICT(id) DO UPDATE SET
+       contract_address = excluded.contract_address,
+       owner_address = excluded.owner_address,
+       relayer_address = excluded.relayer_address,
+       deployment_tx_hash = excluded.deployment_tx_hash,
+       reward_amount_wei = excluded.reward_amount_wei,
+       status = 'active',
+       updated_at = CURRENT_TIMESTAMP`,
+  )
+    .bind(
+      campaignId,
+      contractAddress,
+      String(owner).toLowerCase(),
+      String(relayer).toLowerCase(),
+      deploymentTxHash,
+      rewardAmount.toString(),
+    )
+    .run()
+
+  return json({
+    campaign: {
+      id: campaignId,
+      contractAddress,
+      ownerAddress: String(owner).toLowerCase(),
+      relayerAddress: String(relayer).toLowerCase(),
+      rewardAmountWei: rewardAmount.toString(),
+      status: 'active',
+    },
+  })
+}
+
+async function gaslessClaim(request, env) {
+  const payload = await readJson(request)
+  const registrationId = String(payload.registrationId || '').trim()
+
+  if (!registrationId) {
+    return json({ error: 'A valid ScanDrop registration is required.' }, 400)
+  }
+  if (!env.RELAYER_PRIVATE_KEY || !env.GASLESS_RELAYER_ADDRESS) {
+    return json({ error: 'The ScanDrop gas sponsor is not ready.' }, 503)
+  }
+
+  const registration = await env.DB.prepare(
+    `SELECT cr.id, cr.wallet_address AS walletAddress,
+            cr.claim_status AS claimStatus, cr.claim_tx_hash AS claimTxHash,
+            c.contract_address AS contractAddress,
+            c.relayer_address AS relayerAddress
+     FROM campaign_registrations cr
+     JOIN campaigns c ON c.id = cr.campaign_id
+     WHERE cr.id = ?1 AND c.status = 'active'`,
+  )
+    .bind(registrationId)
+    .first()
+
+  if (!registration || !isWalletAddress(registration.walletAddress || '')) {
+    return json({ error: 'Connect the registered wallet before claiming.' }, 409)
+  }
+  if (registration.claimStatus === 'claimed') {
+    return json(
+      {
+        error: 'This ScanDrop account has already received its reward.',
+        transactionHash: registration.claimTxHash,
+      },
+      409,
+    )
+  }
+  if (registration.claimStatus === 'processing') {
+    return json({ error: 'This gasless claim is already being processed.' }, 409)
+  }
+
+  const lockResult = await env.DB.prepare(
+    `UPDATE campaign_registrations
+     SET claim_status = 'processing', updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?1 AND claim_status IN ('wallet_connected', 'failed')`,
+  )
+    .bind(registrationId)
+    .run()
+
+  if (!lockResult.meta?.changes) {
+    return json({ error: 'This registration is not ready for a gasless claim.' }, 409)
+  }
+
+  try {
+    const provider = new JsonRpcProvider(env.FUJI_RPC_URL || defaultFujiRpcUrl)
+    const relayerWallet = new Wallet(env.RELAYER_PRIVATE_KEY, provider)
+    const expectedRelayer = String(env.GASLESS_RELAYER_ADDRESS).toLowerCase()
+
+    if (
+      relayerWallet.address.toLowerCase() !== expectedRelayer ||
+      String(registration.relayerAddress).toLowerCase() !== expectedRelayer
+    ) {
+      throw new Error('Gas sponsor address mismatch.')
+    }
+
+    const contract = new Contract(
+      registration.contractAddress,
+      rewardCampaignArtifact.abi,
+      relayerWallet,
+    )
+    const alreadyClaimed = await contract.hasClaimed(registration.walletAddress)
+
+    if (alreadyClaimed) {
+      throw new Error('This wallet has already claimed this reward.')
+    }
+
+    const transaction = await contract.claimFor(registration.walletAddress)
+    const receipt = await transaction.wait(1)
+
+    await env.DB.prepare(
+      `UPDATE campaign_registrations
+       SET claim_tx_hash = ?1, claim_status = 'claimed',
+           claimed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?2 AND wallet_address = ?3`,
+    )
+      .bind(transaction.hash, registrationId, registration.walletAddress)
+      .run()
+
+    return json({
+      ok: true,
+      claimStatus: 'claimed',
+      transactionHash: transaction.hash,
+      blockNumber: receipt.blockNumber,
+      walletAddress: registration.walletAddress,
+    })
+  } catch (error) {
+    await env.DB.prepare(
+      `UPDATE campaign_registrations
+       SET claim_status = 'failed', updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?1 AND claim_status = 'processing'`,
+    )
+      .bind(registrationId)
+      .run()
+
+    const technicalMessage =
+      error?.shortMessage || error?.reason || error?.message || 'Unknown error'
+    const normalizedMessage = String(technicalMessage).toLowerCase()
+    let publicMessage = 'ScanDrop could not sponsor this claim. Please try again.'
+
+    if (normalizedMessage.includes('alreadyclaimed') || normalizedMessage.includes('already claimed')) {
+      publicMessage = 'This wallet has already claimed this reward.'
+    } else if (
+      normalizedMessage.includes('insufficientcampaignbalance') ||
+      normalizedMessage.includes('campaign balance')
+    ) {
+      publicMessage = 'This campaign has run out of AVAX rewards.'
+    } else if (normalizedMessage.includes('insufficient funds')) {
+      publicMessage = 'The ScanDrop gas sponsor needs more Fuji AVAX.'
+    } else if (normalizedMessage.includes('campaignended')) {
+      publicMessage = 'This campaign has ended.'
+    } else if (normalizedMessage.includes('campaignpaused')) {
+      publicMessage = 'This campaign is paused.'
+    }
+
+    console.error('Gasless Fuji claim failed:', technicalMessage)
+    return json(
+      { error: publicMessage },
+      502,
+    )
+  }
+}
+
 async function handleApi(request, env, url) {
   if (!env.DB) {
     return json({ error: 'ScanDrop registration storage is unavailable.' }, 503)
@@ -230,6 +466,22 @@ async function handleApi(request, env, url) {
       url.pathname === '/api/registrations/claim'
     ) {
       return await recordClaim(request, env)
+    }
+    if (
+      request.method === 'POST' &&
+      url.pathname === '/api/campaigns/activate'
+    ) {
+      return await activateCampaign(request, env)
+    }
+    if (
+      request.method === 'POST' &&
+      url.pathname === '/api/claims/gasless'
+    ) {
+      return await gaslessClaim(request, env)
+    }
+    if (request.method === 'GET' && url.pathname.startsWith('/api/campaigns/')) {
+      const campaignId = decodeURIComponent(url.pathname.slice('/api/campaigns/'.length))
+      return await getCampaign(env, campaignId)
     }
 
     return json({ error: 'Not found.' }, 404)

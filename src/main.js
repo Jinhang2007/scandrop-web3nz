@@ -21,7 +21,10 @@ import {
   preloadWalletConnect,
 } from './walletconnect.js'
 import {
+  activateGaslessCampaign,
+  getActiveCampaign,
   linkRegistrationWallet,
+  requestGaslessClaim,
   recordRegistrationClaim,
   registerScanDropProfile,
 } from './registration.js'
@@ -39,7 +42,7 @@ const campaign = {
   id: 'web3nz-welcome',
   name: 'Web3NZ AVAX Welcome Drop',
   sponsor: 'Web3NZ Hackathon',
-  reward: 0.01,
+  reward: 0.001,
   currency: 'AVAX',
   budget: 5,
   spent: 1.4,
@@ -266,7 +269,7 @@ app.innerHTML = `
               <button class="text-button">Edit journey →</button>
             </div>
             <div class="journey">
-              <div class="journey-step active"><span class="step-icon">⌁</span><div><small>DAY 0</small><strong>Instant AVAX drop</strong><p>0.01 AVAX after a unique scan</p></div><b>700</b></div>
+              <div class="journey-step active"><span class="step-icon">⌁</span><div><small>DAY 0</small><strong>Instant AVAX drop</strong><p>0.001 AVAX after a unique scan</p></div><b>700</b></div>
               <div class="journey-line"></div>
               <div class="journey-step"><span class="step-icon">✉</span><div><small>DAY 3</small><strong>Product introduction</strong><p>Show what is waiting for them</p></div><b>482</b></div>
               <div class="journey-line"></div>
@@ -310,11 +313,12 @@ app.innerHTML = `
     <form id="campaign-form">
       <label>Campaign name<input name="name" value="Web3NZ AVAX Welcome Drop" required></label>
       <div class="form-row">
-        <label>Reward per wallet<div class="input-unit"><span>◆</span><input name="reward" type="number" min="0.001" step="0.001" value="0.01" required><b>AVAX</b></div></label>
-        <label>Contract funding<div class="input-unit"><span>◆</span><input name="budget" type="number" min="0.01" step="0.01" value="1" required><b>AVAX</b></div></label>
+        <label>Reward per wallet<div class="input-unit"><span>◆</span><input name="reward" type="number" min="0.001" step="0.001" value="0.001" required><b>AVAX</b></div></label>
+        <label>Contract funding<div class="input-unit"><span>◆</span><input name="budget" type="number" min="0.01" step="0.01" value="0.01" required><b>AVAX</b></div></label>
       </div>
       <label>Campaign duration<div class="input-unit duration-unit"><span>◷</span><input name="duration" type="number" min="1" step="1" value="30" required><b>DAYS</b></div></label>
       <div class="rule-preview"><span>✓</span><div><strong>One wallet, one reward</strong><p>The RewardCampaign contract rejects every duplicate claim.</p></div></div>
+      <div class="rule-preview"><span>⚡</span><div><strong>Gasless for new users</strong><p>0.005 AVAX is sent to ScanDrop's relayer to sponsor claim transactions.</p></div></div>
       <div class="deployment-summary">
         <span>Fuji testnet only</span>
         <span>No real-money value</span>
@@ -322,7 +326,7 @@ app.innerHTML = `
       </div>
       <div class="deployment-status" id="deployment-status" hidden></div>
       <button class="primary-button full" id="deploy-campaign" type="submit">Connect Core & deploy on Fuji</button>
-      <small class="deployment-note">The funding amount is deposited into the contract. Keep a little extra Fuji AVAX in your wallet for gas.</small>
+      <small class="deployment-note">Core will show contract funding + 0.005 AVAX for the gas sponsor + deployment gas. Claiming users need no AVAX.</small>
     </form>
   </dialog>
 
@@ -380,6 +384,12 @@ function friendlyWalletError(error) {
   const message = error?.shortMessage || error?.reason || error?.message || 'Wallet request failed.'
   if (message.includes('AlreadyClaimed')) return 'This wallet has already claimed this reward.'
   if (message.includes('InsufficientCampaignBalance')) return 'The campaign has run out of AVAX.'
+  if (message.toLowerCase().includes('insufficient funds')) {
+    return 'The ScanDrop gas sponsor needs more Fuji AVAX. Please ask the organiser to refill it.'
+  }
+  if (message.includes('could not coalesce error')) {
+    return 'The Fuji transaction service could not complete the request. Please try again.'
+  }
   if (message.includes('CampaignPaused')) return 'This campaign is currently paused.'
   if (message.includes('CampaignEnded')) return 'This campaign has ended.'
   return message.replace('execution reverted: ', '')
@@ -475,7 +485,12 @@ function claimAvailability() {
   if (snapshot.endTime < new Date()) return { label: 'Campaign ended', disabled: true }
   if (snapshot.hasClaimed) return { label: 'Reward already claimed', disabled: true }
   if (snapshot.remainingClaims < 1) return { label: 'Campaign fully claimed', disabled: true }
-  return { label: `Claim ${Number(snapshot.rewardAmount).toFixed(3)} AVAX`, disabled: false }
+  return {
+    label: snapshot.gasless
+      ? `Receive ${Number(snapshot.rewardAmount).toFixed(3)} AVAX · Gas paid`
+      : `Claim ${Number(snapshot.rewardAmount).toFixed(3)} AVAX`,
+    disabled: false,
+  }
 }
 
 async function handleRegistrationSubmit(event) {
@@ -604,7 +619,10 @@ function renderClaimExperience() {
           <span>Add a Reown Project ID to activate the mobile connection.</span>
         </div>
       ` : ''}
-      <a class="switch-account faucet-link" href="${FUJI_NETWORK.faucetUrl}" target="_blank" rel="noreferrer">Get test AVAX for gas ↗</a>
+      <div class="walletconnect-setup">
+        <strong>No AVAX is required to claim</strong>
+        <span>For gasless campaigns, ScanDrop submits and pays for the Fuji transaction.</span>
+      </div>
       <button class="switch-account" id="change-profile">Use a different ScanDrop account</button>
       <small class="claim-note">Fuji tokens are for testing only and have no real-world value.</small>
     `
@@ -624,12 +642,18 @@ function renderClaimExperience() {
     : isContractConfigured
       ? 'Eligible'
       : 'Setup pending'
+  const rewardAmount = Number(walletState.campaign?.rewardAmount || campaign.reward)
+  const isGasless = Boolean(walletState.campaign?.gasless)
 
   content.innerHTML = `
     <span class="drop-badge">STEP 3 OF 3 · CLAIM REWARD</span>
     <div class="coin-orbit compact-orbit"><span class="coin avax-coin">A</span><i></i><i></i><i></i></div>
-    <h2>${campaign.reward.toFixed(3)} AVAX is waiting.</h2>
-    <p>Your connected wallet is on Fuji. The smart contract will enforce one successful claim per address.</p>
+    <h2>${rewardAmount.toFixed(3)} AVAX is waiting.</h2>
+    <p>${
+      isGasless
+        ? 'ScanDrop will pay the Fuji network fee and send the claim transaction for you.'
+        : 'Your connected wallet is on Fuji. The smart contract will enforce one successful claim per address.'
+    }</p>
     <div class="wallet-card">
       <span class="wallet-avatar avax-avatar">A</span>
       <div><small>Fuji wallet · ${Number(walletState.balance).toFixed(4)} AVAX</small><strong>${formatAddress(walletState.address)}</strong></div>
@@ -648,7 +672,9 @@ function renderClaimExperience() {
     </button>
     <button class="switch-account" id="disconnect-view">Connect a different wallet</button>
     <button class="switch-account" id="change-profile">Use a different ScanDrop account</button>
-    <small class="claim-note">Network: Avalanche Fuji C-Chain · Chain ID 43113</small>
+    <small class="claim-note">${
+      isGasless ? 'Gas sponsored by ScanDrop · ' : ''
+    }Network: Avalanche Fuji C-Chain · Chain ID 43113</small>
   `
 
   document.querySelector('#claim-reward').addEventListener('click', handleOnChainClaim)
@@ -705,6 +731,9 @@ async function applyConnectedWallet(wallet, connectionType, { linkProfile = true
   walletState.balance = wallet.balance
   walletState.signer = wallet.signer
   walletState.campaign = await readCampaign(wallet.address)
+  if (walletState.campaign?.rewardAmount) {
+    campaign.reward = Number(walletState.campaign.rewardAmount)
+  }
   walletState.connectionType = connectionType
 }
 
@@ -714,22 +743,35 @@ async function handleOnChainClaim() {
   renderClaimExperience()
 
   try {
-    const result = await claimReward(walletState.signer)
-    walletState.campaign = await readCampaign(walletState.address)
-
+    let result
     let profileSynced = true
-    try {
-      await recordRegistrationClaim(
-        accountState.registrationId,
-        walletState.address,
-        result.hash,
-      )
+
+    if (walletState.campaign?.gasless) {
+      const gaslessResult = await requestGaslessClaim(accountState.registrationId)
+      result = {
+        hash: gaslessResult.transactionHash,
+        blockNumber: gaslessResult.blockNumber,
+        gasless: true,
+      }
       accountState.claimStatus = 'claimed'
       saveProfile()
-    } catch {
-      profileSynced = false
+    } else {
+      result = await claimReward(walletState.signer)
+
+      try {
+        await recordRegistrationClaim(
+          accountState.registrationId,
+          walletState.address,
+          result.hash,
+        )
+        accountState.claimStatus = 'claimed'
+        saveProfile()
+      } catch {
+        profileSynced = false
+      }
     }
 
+    walletState.campaign = await readCampaign(walletState.address)
     renderClaimSuccess(result, profileSynced)
     await syncCampaignFromChain()
   } catch (error) {
@@ -745,7 +787,11 @@ function renderClaimSuccess(result, profileSynced) {
     <span class="drop-badge success">FUJI TRANSACTION CONFIRMED</span>
     <div class="success-ring avax-success"><span>✓</span></div>
     <h2>Your AVAX arrived.</h2>
-    <p>The native test AVAX reward was transferred by the ScanDrop smart contract.</p>
+    <p>${
+      result.gasless
+        ? 'ScanDrop paid the network fee. Your wallet received AVAX without submitting a transaction.'
+        : 'The native test AVAX reward was transferred by the ScanDrop smart contract.'
+    }</p>
     <div class="receipt">
       <div><span>ScanDrop account</span><strong>${escapeHtml(accountState.email)}</strong></div>
       <div><span>Wallet</span><strong>${formatAddress(walletState.address)}</strong></div>
@@ -760,7 +806,9 @@ function renderClaimSuccess(result, profileSynced) {
     `}
     <a class="claim-button explorer-button" href="${transactionUrl(result.hash)}" target="_blank" rel="noreferrer">View transaction ↗</a>
     <button class="switch-account" id="finish-claim">${isClaimRoute ? 'Reward claimed' : 'Done'}</button>
-    <small class="claim-note">The RewardClaimed event is now part of the public campaign record.</small>
+    <small class="claim-note">${
+      result.gasless ? 'Gas sponsored by ScanDrop · ' : ''
+    }The RewardClaimed event is now part of the public campaign record.</small>
   `
   document.querySelector('#finish-claim').addEventListener('click', () => {
     if (!isClaimRoute) claimDialog.close()
@@ -856,10 +904,6 @@ function applyCampaignDraft(data) {
   campaign.spent = 0
   campaign.claimers = 0
   campaign.remaining = Math.floor(campaign.budget / campaign.reward)
-  campaign.id = campaign.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
 
   document.querySelector('#campaign-title').textContent = campaign.name
   document.querySelector('#reward-value').textContent = `${campaign.reward.toFixed(3)} AVAX`
@@ -919,6 +963,7 @@ document.querySelector('#campaign-form').addEventListener('submit', async (event
   const deployButton = document.querySelector('#deploy-campaign')
   applyCampaignDraft(data)
   deployButton.disabled = true
+  let deployedResult = null
 
   try {
     if (!walletState.signer) {
@@ -948,8 +993,18 @@ document.querySelector('#campaign-form').addEventListener('submit', async (event
       fundingAmountAvax: data.get('budget'),
       durationDays: data.get('duration'),
     })
+    deployedResult = result
 
     setRewardCampaignAddress(result.address)
+    setDeploymentStatus(
+      'pending',
+      '<strong>Contract confirmed · Activating gas sponsor</strong><span>ScanDrop is verifying the owner and relayer on Fuji.</span>',
+    )
+    await activateGaslessCampaign({
+      campaignId: campaign.id,
+      contractAddress: result.address,
+      deploymentTransactionHash: result.hash,
+    })
     walletState.balance = result.ownerBalance
     walletState.campaign = await readCampaign(walletState.address)
     campaign.status = 'Live on Fuji'
@@ -960,7 +1015,7 @@ document.querySelector('#campaign-form').addEventListener('submit', async (event
 
     setDeploymentStatus(
       'success',
-      `<strong>Campaign deployed on Fuji</strong>
+      `<strong>Gasless campaign deployed on Fuji</strong>
        <span>${formatAddress(result.address)} · Block ${result.blockNumber}</span>
        <a href="${contractUrl(result.address)}" target="_blank" rel="noreferrer">View contract on Fuji Explorer ↗</a>`,
     )
@@ -970,7 +1025,11 @@ document.querySelector('#campaign-form').addEventListener('submit', async (event
     if (!campaignDialog.open) campaignDialog.showModal()
     setDeploymentStatus(
       'error',
-      `<strong>Deployment was not completed</strong><span>${escapeHtml(friendlyWalletError(error))}</span>`,
+      deployedResult
+        ? `<strong>The contract deployed, but gasless activation needs attention</strong>
+           <span>${formatAddress(deployedResult.address)} · ${escapeHtml(friendlyWalletError(error))}</span>
+           <a href="${contractUrl(deployedResult.address)}" target="_blank" rel="noreferrer">View deployed contract ↗</a>`
+        : `<strong>Deployment was not completed</strong><span>${escapeHtml(friendlyWalletError(error))}</span>`,
     )
     deployButton.disabled = false
     updateDeploymentButton()
@@ -1003,9 +1062,25 @@ if (isClaimRoute) {
   document.querySelector('#campaign-dialog')?.remove()
   window.setTimeout(openClaim, 150)
 } else {
+  initializeAdminExperience()
+}
+
+async function initializeAdminExperience() {
   document.body.classList.add('admin-locked')
-  renderQr()
-  syncCampaignFromChain()
+
+  try {
+    const activeCampaign = await getActiveCampaign(campaign.id)
+    if (activeCampaign?.contractAddress) {
+      setRewardCampaignAddress(activeCampaign.contractAddress)
+      campaign.status = 'Live on Fuji'
+      updateContractBanner()
+    }
+  } catch {
+    // Before the first gasless deployment, the locally configured contract is used.
+  }
+
+  await renderQr()
+  await syncCampaignFromChain()
   renderAdminGate()
   window.setTimeout(() => adminAuthDialog.showModal(), 100)
 }

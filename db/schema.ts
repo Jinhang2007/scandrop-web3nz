@@ -47,3 +47,21 @@ export const campaignRegistrations = sqliteTable(
       .where(sql`${table.walletAddress} IS NOT NULL`),
   ],
 )
+
+export const campaigns = sqliteTable(
+  'campaigns',
+  {
+    id: text('id').primaryKey(),
+    contractAddress: text('contract_address').notNull(),
+    ownerAddress: text('owner_address').notNull(),
+    relayerAddress: text('relayer_address').notNull(),
+    deploymentTxHash: text('deployment_tx_hash').notNull(),
+    rewardAmountWei: text('reward_amount_wei').notNull(),
+    status: text('status').notNull().default('active'),
+    createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex('campaigns_contract_address_unique').on(table.contractAddress),
+  ],
+)

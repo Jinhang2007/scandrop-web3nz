@@ -22,6 +22,10 @@ export const FUJI_NETWORK = {
   faucetUrl: 'https://core.app/tools/testnet-faucet/',
 }
 
+export const GASLESS_RELAYER_ADDRESS =
+  import.meta.env.VITE_GASLESS_RELAYER_ADDRESS?.trim() ||
+  '0x1c510e360696E199A896c07311b3fA6807763aE4'
+
 const campaignAddressStorageKey = 'scandrop:reward-campaign-address'
 const defaultCampaignAddress = '0xd326af1c80d190ba230a0a358781fcfa8ef08d99'
 const configuredCampaignAddress =
@@ -147,7 +151,12 @@ export async function connectWallet() {
 
 export async function deployRewardCampaign(
   signer,
-  { rewardAmountAvax, fundingAmountAvax, durationDays },
+  {
+    rewardAmountAvax,
+    fundingAmountAvax,
+    durationDays,
+    relayerGasFundingAvax = '0.005',
+  },
 ) {
   if (!signer) {
     throw new Error('Connect the organiser wallet before deploying.')
@@ -156,6 +165,7 @@ export async function deployRewardCampaign(
   const rewardAmount = Number(rewardAmountAvax)
   const fundingAmount = Number(fundingAmountAvax)
   const duration = Number(durationDays)
+  const relayerGasFunding = Number(relayerGasFundingAvax)
 
   if (
     !Number.isFinite(rewardAmount) ||
@@ -164,7 +174,10 @@ export async function deployRewardCampaign(
     fundingAmount <= 0 ||
     rewardAmount > fundingAmount ||
     !Number.isFinite(duration) ||
-    duration <= 0
+    duration <= 0 ||
+    !Number.isFinite(relayerGasFunding) ||
+    relayerGasFunding <= 0 ||
+    !isAddress(GASLESS_RELAYER_ADDRESS)
   ) {
     throw new Error('Enter a valid reward, funding amount, and campaign duration.')
   }
@@ -178,9 +191,11 @@ export async function deployRewardCampaign(
   const owner = await signer.getAddress()
   const balance = await provider.getBalance(owner)
   const fundingWei = parseEther(String(fundingAmountAvax))
-  if (balance <= fundingWei) {
+  const relayerGasFundingWei = parseEther(String(relayerGasFundingAvax))
+  const totalDeploymentValue = fundingWei + relayerGasFundingWei
+  if (balance <= totalDeploymentValue) {
     throw new Error(
-      `Your wallet has ${Number(formatEther(balance)).toFixed(4)} AVAX. Add enough Fuji AVAX for the campaign funding plus gas.`,
+      `Your wallet has ${Number(formatEther(balance)).toFixed(4)} AVAX. Add enough Fuji AVAX for the campaign funding, the ${relayerGasFundingAvax} AVAX gas sponsor reserve, and deployment gas.`,
     )
   }
 
@@ -194,7 +209,9 @@ export async function deployRewardCampaign(
   const contract = await factory.deploy(
     parseEther(String(rewardAmountAvax)),
     endTime,
-    { value: fundingWei },
+    GASLESS_RELAYER_ADDRESS,
+    relayerGasFundingWei,
+    { value: totalDeploymentValue },
   )
   const deploymentTransaction = contract.deploymentTransaction()
 
@@ -207,6 +224,8 @@ export async function deployRewardCampaign(
     hash: deploymentTransaction.hash,
     blockNumber: receipt.blockNumber,
     ownerBalance: formatEther(ownerBalance),
+    relayer: GASLESS_RELAYER_ADDRESS,
+    relayerGasFunding: String(relayerGasFundingAvax),
   }
 }
 
@@ -231,6 +250,13 @@ export async function readCampaign(account) {
       contract.remainingClaims(),
     ])
 
+  let relayer = ''
+  try {
+    relayer = await contract.relayer()
+  } catch {
+    // Contracts deployed before gasless claims do not expose a relayer.
+  }
+
   return {
     rewardAmount: formatEther(rewardAmount),
     endTime: new Date(Number(endTime) * 1000),
@@ -239,6 +265,8 @@ export async function readCampaign(account) {
     hasClaimed,
     contractBalance: formatEther(balance),
     remainingClaims: Number(remainingClaims),
+    relayer,
+    gasless: isAddress(relayer),
   }
 }
 

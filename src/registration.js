@@ -1,8 +1,8 @@
 const requestTimeoutMs = 12_000
 
-async function post(path, payload) {
+async function post(path, payload, timeoutMs = requestTimeoutMs) {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), requestTimeoutMs)
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const response = await fetch(path, {
@@ -60,4 +60,34 @@ export async function recordRegistrationClaim(
     walletAddress,
     transactionHash,
   })
+}
+
+export async function activateGaslessCampaign({
+  campaignId,
+  contractAddress,
+  deploymentTransactionHash,
+}) {
+  const result = await post('/api/campaigns/activate', {
+    campaignId,
+    contractAddress,
+    deploymentTransactionHash,
+  }, 30_000)
+  return result.campaign
+}
+
+export async function requestGaslessClaim(registrationId) {
+  return post('/api/claims/gasless', { registrationId }, 60_000)
+}
+
+export async function getActiveCampaign(campaignId) {
+  const response = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}`, {
+    headers: { accept: 'application/json' },
+  })
+  const result = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(result.error || 'ScanDrop campaign could not be loaded.')
+  }
+
+  return result.campaign
 }

@@ -4,12 +4,17 @@ import { ContractFactory, JsonRpcProvider, Wallet, formatEther, parseEther } fro
 
 const rpcUrl = process.env.FUJI_RPC_URL || 'https://api.avax-test.network/ext/bc/C/rpc'
 const privateKey = process.env.FUJI_DEPLOYER_PRIVATE_KEY
-const rewardAmount = process.env.REWARD_AMOUNT_AVAX || '0.01'
-const campaignFunding = process.env.CAMPAIGN_FUNDING_AVAX || '1'
+const rewardAmount = process.env.REWARD_AMOUNT_AVAX || '0.001'
+const campaignFunding = process.env.CAMPAIGN_FUNDING_AVAX || '0.01'
+const relayerAddress = process.env.GASLESS_RELAYER_ADDRESS
+const relayerGasFunding = process.env.RELAYER_GAS_FUNDING_AVAX || '0.005'
 const durationDays = Number(process.env.CAMPAIGN_DURATION_DAYS || '30')
 
 if (!privateKey) {
   throw new Error('Set FUJI_DEPLOYER_PRIVATE_KEY before deploying. Use a test-only wallet.')
+}
+if (!relayerAddress) {
+  throw new Error('Set GASLESS_RELAYER_ADDRESS before deploying.')
 }
 
 if (!Number.isFinite(durationDays) || durationDays <= 0) {
@@ -28,8 +33,10 @@ if (network.chainId !== 43113n) {
 const wallet = new Wallet(privateKey, provider)
 const balance = await provider.getBalance(wallet.address)
 const fundingWei = parseEther(campaignFunding)
+const relayerGasFundingWei = parseEther(relayerGasFunding)
+const totalDeploymentValue = fundingWei + relayerGasFundingWei
 
-if (balance <= fundingWei) {
+if (balance <= totalDeploymentValue) {
   throw new Error(
     `The deployer has ${formatEther(balance)} AVAX. Add enough test AVAX for funding and gas.`,
   )
@@ -39,9 +46,13 @@ const endTime = Math.floor(Date.now() / 1000) + durationDays * 24 * 60 * 60
 const factory = new ContractFactory(artifact.abi, artifact.bytecode, wallet)
 
 console.log(`Deploying from ${wallet.address} on Avalanche Fuji...`)
-const contract = await factory.deploy(parseEther(rewardAmount), endTime, {
-  value: fundingWei,
-})
+const contract = await factory.deploy(
+  parseEther(rewardAmount),
+  endTime,
+  relayerAddress,
+  relayerGasFundingWei,
+  { value: totalDeploymentValue },
+)
 
 await contract.waitForDeployment()
 const address = await contract.getAddress()
