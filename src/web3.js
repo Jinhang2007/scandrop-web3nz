@@ -23,8 +23,9 @@ export const FUJI_NETWORK = {
 }
 
 const campaignAddressStorageKey = 'scandrop:reward-campaign-address'
+const defaultCampaignAddress = '0xd326af1c80d190ba230a0a358781fcfa8ef08d99'
 const configuredCampaignAddress =
-  import.meta.env.VITE_REWARD_CAMPAIGN_ADDRESS?.trim() || ''
+  import.meta.env.VITE_REWARD_CAMPAIGN_ADDRESS?.trim() || defaultCampaignAddress
 const linkedCampaignAddress = new URLSearchParams(window.location.search)
   .get('contract')
   ?.trim()

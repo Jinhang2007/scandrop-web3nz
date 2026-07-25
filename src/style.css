@@ -23,6 +23,12 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--paper); }
+body.admin-locked { overflow: hidden; background: #0b0d0c; }
+body.admin-locked .app-shell { display: none; }
+body.claim-only-mode { overflow: auto; background: #eef0ea; }
+body.claim-only-mode .claim-dialog { position: static; margin: 24px auto; }
+body.claim-only-mode .claim-dialog::backdrop { background: #eef0ea; backdrop-filter: none; }
+body.claim-only-mode .claim-dialog .dialog-close { display: none; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
@@ -360,6 +366,26 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
 .deployment-status a { color: var(--ink); font-weight: 800; }
 .deployment-note { display: block; color: #8a918a; font-size: 8px; line-height: 1.45; text-align: center; }
 
+.admin-auth-dialog {
+  width: min(390px, calc(100vw - 36px)); padding: 30px; border-radius: 20px;
+  background: #f8f9f5; box-shadow: 0 35px 80px rgba(0,0,0,.5); text-align: center;
+}
+.admin-auth-dialog::backdrop { background: #0b0d0c; backdrop-filter: none; }
+.admin-auth-dialog h2 { margin-top: 16px; font-size: 27px; letter-spacing: -.04em; }
+.admin-auth-dialog p { margin: 10px auto 18px; color: #747b75; font-size: 11px; line-height: 1.55; }
+.admin-lock {
+  width: 70px; height: 70px; margin: 22px auto 0; border-radius: 20px;
+  display: grid; place-items: center; background: var(--ink); color: var(--lime);
+  font: 500 19px 'DM Mono', monospace; box-shadow: 0 14px 30px rgba(11,13,12,.18);
+}
+.admin-wallet-rule {
+  display: flex; align-items: center; justify-content: space-between; padding: 10px 12px;
+  border: 1px solid #d8e9ad; border-radius: 9px; background: var(--lime-soft); text-align: left;
+}
+.admin-wallet-rule small { color: #71804f; font-size: 8px; }
+.admin-wallet-rule strong { font: 500 9px 'DM Mono', monospace; }
+.admin-sign-note { display: block; margin-top: 14px; color: #929892; font-size: 8px; }
+
 .toast { position: fixed; left: 50%; bottom: 24px; z-index: 30; transform: translate(-50%, 20px); padding: 10px 15px; border-radius: 9px; background: var(--ink); color: #fff; font-size: 10px; opacity: 0; pointer-events: none; transition: .22s ease; box-shadow: 0 15px 35px rgba(0,0,0,.2); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
@@ -405,4 +431,8 @@ dialog::backdrop { background: rgba(6,8,7,.72); backdrop-filter: blur(6px); }
   .campaign-dialog { padding: 22px; }
   .top-actions .primary-button { font-size: 0; }
   .top-actions .primary-button span { font-size: 16px; margin: 0; }
+  body.claim-only-mode .claim-dialog { margin: 0 auto; }
+  body.claim-only-mode .phone-shell {
+    width: 100vw; min-height: 100vh; border: 0; border-radius: 0; padding-top: 22px;
+  }
 }

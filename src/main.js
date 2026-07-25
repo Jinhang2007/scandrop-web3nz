@@ -1,5 +1,6 @@
 import './style.css'
 import QRCode from 'qrcode'
+import { verifyMessage } from 'ethers'
 import {
   FUJI_NETWORK,
   REWARD_CAMPAIGN_ADDRESS,
@@ -48,6 +49,13 @@ const campaign = {
   status: isContractConfigured ? 'Live on Fuji' : 'Contract ready',
 }
 
+const routeParams = new URLSearchParams(window.location.search)
+const isClaimRoute = routeParams.has('campaign')
+const adminWalletAddress = (
+  import.meta.env.VITE_ADMIN_WALLET_ADDRESS?.trim() ||
+  '0x4ee6b577a6e122bc3c92be2d64ca907af865d813'
+).toLowerCase()
+
 const walletState = {
   address: '',
   balance: '',
@@ -56,6 +64,12 @@ const walletState = {
   connectionType: '',
   busy: false,
   error: '',
+}
+
+const adminState = {
+  busy: false,
+  error: '',
+  unlocked: false,
 }
 
 const profileStorageKey = 'scandrop:profile'
@@ -313,11 +327,16 @@ app.innerHTML = `
     </form>
   </dialog>
 
+  <dialog id="admin-auth-dialog" class="admin-auth-dialog">
+    <div id="admin-auth-content"></div>
+  </dialog>
+
   <div class="toast" id="toast" role="status"></div>
 `
 
 const claimDialog = document.querySelector('#claim-dialog')
 const campaignDialog = document.querySelector('#campaign-dialog')
+const adminAuthDialog = document.querySelector('#admin-auth-dialog')
 const toast = document.querySelector('#toast')
 
 function campaignUrl() {
@@ -365,6 +384,101 @@ function friendlyWalletError(error) {
   if (message.includes('CampaignPaused')) return 'This campaign is currently paused.'
   if (message.includes('CampaignEnded')) return 'This campaign has ended.'
   return message.replace('execution reverted: ', '')
+}
+
+function renderAdminGate() {
+  const content = document.querySelector('#admin-auth-content')
+  if (!content) return
+
+  content.innerHTML = `
+    <span class="eyebrow">SCANDROP ADMIN</span>
+    <div class="admin-lock">SD</div>
+    <h2>Organiser wallet required.</h2>
+    <p>The campaign dashboard is restricted to the wallet that owns the Fuji reward contract.</p>
+    <div class="admin-wallet-rule">
+      <small>Allowed organiser</small>
+      <strong>${formatAddress(adminWalletAddress)}</strong>
+    </div>
+    ${adminState.error ? `<div class="wallet-error">${escapeHtml(adminState.error)}</div>` : ''}
+    <div class="wallet-connect-options">
+      <button class="claim-button walletconnect-button" id="admin-walletconnect" ${adminState.busy || !isWalletConnectConfigured ? 'disabled' : ''}>
+        <span class="connect-icon">◎</span>
+        <span><strong>${adminState.busy ? 'Waiting for wallet…' : 'Sign in with Core mobile'}</strong><small>Connect and approve one free signature</small></span>
+      </button>
+      <button class="extension-button" id="admin-extension" ${adminState.busy || !hasInjectedWallet() ? 'disabled' : ''}>
+        <span class="connect-icon">◇</span>
+        <span><strong>Sign in with browser wallet</strong><small>${hasInjectedWallet() ? 'Core or MetaMask detected' : 'Available in a wallet-enabled desktop browser'}</small></span>
+      </button>
+    </div>
+    <small class="admin-sign-note">Signing is free. It does not send AVAX or approve spending.</small>
+  `
+
+  document.querySelector('#admin-walletconnect').addEventListener('click', () => {
+    handleAdminSignIn('walletconnect')
+  })
+  document.querySelector('#admin-extension').addEventListener('click', () => {
+    handleAdminSignIn('injected')
+  })
+}
+
+async function handleAdminSignIn(connectionType) {
+  adminState.busy = true
+  adminState.error = ''
+  renderAdminGate()
+
+  if (connectionType === 'walletconnect' && adminAuthDialog.open) {
+    adminAuthDialog.close()
+  }
+
+  try {
+    const wallet =
+      connectionType === 'walletconnect'
+        ? await connectWalletConnect()
+        : await connectWallet()
+    const connectedAddress = wallet.address.toLowerCase()
+
+    if (connectedAddress !== adminWalletAddress) {
+      if (connectionType === 'walletconnect') {
+        await disconnectWalletConnect().catch(() => {})
+      }
+      throw new Error(
+        `This wallet is not the ScanDrop organiser. Connect ${formatAddress(adminWalletAddress)} instead.`,
+      )
+    }
+
+    const message = [
+      'Sign in to ScanDrop Admin',
+      `Origin: ${window.location.origin}`,
+      `Wallet: ${connectedAddress}`,
+      `Issued at: ${new Date().toISOString()}`,
+      'This signature is free and does not authorize a transaction.',
+    ].join('\n')
+    const signature = await wallet.signer.signMessage(message)
+    const recoveredAddress = verifyMessage(message, signature).toLowerCase()
+
+    if (recoveredAddress !== adminWalletAddress) {
+      throw new Error('The organiser signature could not be verified.')
+    }
+
+    walletState.address = wallet.address
+    walletState.balance = wallet.balance
+    walletState.signer = wallet.signer
+    walletState.connectionType = connectionType
+    walletState.campaign = await readCampaign(wallet.address).catch(() => null)
+    adminState.unlocked = true
+    document.body.classList.remove('admin-locked')
+    adminAuthDialog.close()
+    updateDeploymentButton()
+    showToast('ScanDrop organiser verified.')
+  } catch (error) {
+    adminState.error = friendlyWalletError(error)
+  } finally {
+    adminState.busy = false
+    if (!adminState.unlocked) {
+      renderAdminGate()
+      if (!adminAuthDialog.open) adminAuthDialog.showModal()
+    }
+  }
 }
 
 function claimAvailability() {
@@ -660,10 +774,12 @@ function renderClaimSuccess(result, profileSynced) {
       <div class="profile-sync warning">The AVAX transfer succeeded, but ScanDrop could not save the receipt. Your explorer transaction remains the proof.</div>
     `}
     <a class="claim-button explorer-button" href="${transactionUrl(result.hash)}" target="_blank" rel="noreferrer">View transaction ↗</a>
-    <button class="switch-account" id="finish-claim">Done</button>
+    <button class="switch-account" id="finish-claim">${isClaimRoute ? 'Reward claimed' : 'Done'}</button>
     <small class="claim-note">The RewardClaimed event is now part of the public campaign record.</small>
   `
-  document.querySelector('#finish-claim').addEventListener('click', () => claimDialog.close())
+  document.querySelector('#finish-claim').addEventListener('click', () => {
+    if (!isClaimRoute) claimDialog.close()
+  })
   showToast('Fuji reward confirmed on-chain.')
 }
 
@@ -678,6 +794,8 @@ async function syncCampaignFromChain() {
     campaign.budget = Number(snapshot.contractBalance) + campaign.spent
     campaign.remaining = snapshot.remainingClaims
 
+    if (!document.querySelector('#claimer-count')) return
+
     document.querySelector('#claimer-count').textContent = campaign.claimers.toLocaleString()
     document.querySelector('#reward-value').textContent = `${campaign.reward.toFixed(3)} AVAX`
     document.querySelector('#budget-used').textContent = `${campaign.spent.toFixed(3)} AVAX`
@@ -691,7 +809,8 @@ async function syncCampaignFromChain() {
     document.querySelector('#remaining-claims').textContent =
       `${campaign.remaining.toLocaleString()} rewards remaining`
   } catch {
-    document.querySelector('#contract-status-label').textContent = '● Fuji RPC unavailable'
+    const statusLabel = document.querySelector('#contract-status-label')
+    if (statusLabel) statusLabel.textContent = '● Fuji RPC unavailable'
   }
 }
 
@@ -783,8 +902,19 @@ document.querySelectorAll('[data-close]').forEach((button) => {
 
 document.querySelectorAll('dialog').forEach((dialog) => {
   dialog.addEventListener('click', (event) => {
-    if (event.target === dialog) dialog.close()
+    if (
+      event.target === dialog &&
+      dialog !== adminAuthDialog &&
+      !(isClaimRoute && dialog === claimDialog)
+    ) {
+      dialog.close()
+    }
   })
+})
+
+adminAuthDialog.addEventListener('cancel', (event) => event.preventDefault())
+claimDialog.addEventListener('cancel', (event) => {
+  if (isClaimRoute) event.preventDefault()
 })
 
 document.querySelectorAll('.nav-item[data-section]').forEach((button) => {
@@ -882,9 +1012,15 @@ if (window.ethereum?.on) {
   })
 }
 
-renderQr()
-syncCampaignFromChain()
-
-if (new URLSearchParams(window.location.search).has('campaign')) {
-  window.setTimeout(openClaim, 350)
+if (isClaimRoute) {
+  document.body.classList.add('claim-only-mode')
+  document.querySelector('.app-shell')?.remove()
+  document.querySelector('#campaign-dialog')?.remove()
+  window.setTimeout(openClaim, 150)
+} else {
+  document.body.classList.add('admin-locked')
+  renderQr()
+  syncCampaignFromChain()
+  renderAdminGate()
+  window.setTimeout(() => adminAuthDialog.showModal(), 100)
 }

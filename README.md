@@ -21,6 +21,8 @@ This version implements the Avalanche path only:
 - ScanDrop profile registration backed by a hosted D1 database
 - One ScanDrop account and one wallet link per campaign
 - Claim transaction receipts saved to the registered profile
+- A public claim-only route that never exposes the organiser dashboard
+- Organiser access gated by a free signature from the campaign owner wallet
 - Public transaction links through the Fuji explorer
 
 USDC is not used in this test. The previously discussed NewMoney integration (step 8) is intentionally not included.
