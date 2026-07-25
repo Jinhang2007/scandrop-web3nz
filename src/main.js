@@ -1,6 +1,5 @@
 import './style.css'
 import QRCode from 'qrcode'
-import { verifyMessage } from 'ethers'
 import {
   FUJI_NETWORK,
   REWARD_CAMPAIGN_ADDRESS,
@@ -403,14 +402,14 @@ function renderAdminGate() {
     <div class="wallet-connect-options">
       <button class="claim-button walletconnect-button" id="admin-walletconnect" ${adminState.busy || !isWalletConnectConfigured ? 'disabled' : ''}>
         <span class="connect-icon">◎</span>
-        <span><strong>${adminState.busy ? 'Waiting for wallet…' : 'Sign in with Core mobile'}</strong><small>Connect and approve one free signature</small></span>
+        <span><strong>${adminState.busy ? 'Waiting for wallet…' : 'Continue with Core mobile'}</strong><small>Connect the organiser wallet to continue</small></span>
       </button>
       <button class="extension-button" id="admin-extension" ${adminState.busy || !hasInjectedWallet() ? 'disabled' : ''}>
         <span class="connect-icon">◇</span>
-        <span><strong>Sign in with browser wallet</strong><small>${hasInjectedWallet() ? 'Core or MetaMask detected' : 'Available in a wallet-enabled desktop browser'}</small></span>
+        <span><strong>Continue with browser wallet</strong><small>${hasInjectedWallet() ? 'Core or MetaMask detected' : 'Available in a wallet-enabled desktop browser'}</small></span>
       </button>
     </div>
-    <small class="admin-sign-note">Signing is free. It does not send AVAX or approve spending.</small>
+    <small class="admin-sign-note">Connecting does not send AVAX or approve spending. Every funding action still requires confirmation in Core.</small>
   `
 
   document.querySelector('#admin-walletconnect').addEventListener('click', () => {
@@ -444,20 +443,6 @@ async function handleAdminSignIn(connectionType) {
       throw new Error(
         `This wallet is not the ScanDrop organiser. Connect ${formatAddress(adminWalletAddress)} instead.`,
       )
-    }
-
-    const message = [
-      'Sign in to ScanDrop Admin',
-      `Origin: ${window.location.origin}`,
-      `Wallet: ${connectedAddress}`,
-      `Issued at: ${new Date().toISOString()}`,
-      'This signature is free and does not authorize a transaction.',
-    ].join('\n')
-    const signature = await wallet.signer.signMessage(message)
-    const recoveredAddress = verifyMessage(message, signature).toLowerCase()
-
-    if (recoveredAddress !== adminWalletAddress) {
-      throw new Error('The organiser signature could not be verified.')
     }
 
     walletState.address = wallet.address
