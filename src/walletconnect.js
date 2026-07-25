@@ -1,4 +1,5 @@
 import { connectEip1193Wallet } from './web3.js'
+import { createForegroundTimeout } from './foreground-timeout.js'
 
 const defaultProjectId = '4bb6f3a43c511fbcedad4b5feff468d0'
 const projectId =
@@ -10,6 +11,8 @@ let appKit
 let fujiNetwork
 let appKitPromise
 const sessionResetTimeoutMs = 4_000
+const connectionTimeoutMs = 180_000
+const connectionResumeGraceMs = 30_000
 
 async function getAppKit() {
   if (appKit) return appKit
@@ -137,18 +140,25 @@ export async function connectWalletConnect({ forceNewSession = false } = {}) {
     let unsubscribeAccount
     let unsubscribeState
     let modalWasOpened = false
+    let walletHandoffSeen = false
 
-    const timeout = window.setTimeout(() => {
-      finishWithError(
-        new Error('WalletConnect timed out. Open Core and approve the connection.'),
-      )
-    }, 60000)
+    const connectionTimer = createForegroundTimeout({
+      timeoutMs: connectionTimeoutMs,
+      resumeGraceMs: connectionResumeGraceMs,
+      isHidden: () => document.visibilityState === 'hidden',
+      onTimeout: handleConnectionTimeout,
+      setTimer: (callback, timeoutMs) => window.setTimeout(callback, timeoutMs),
+      clearTimer: (timerId) => window.clearTimeout(timerId),
+      now: () => Date.now(),
+    })
 
     function cleanup() {
-      window.clearTimeout(timeout)
+      connectionTimer.stop()
       if (typeof unsubscribeProviders === 'function') unsubscribeProviders()
       if (typeof unsubscribeAccount === 'function') unsubscribeAccount()
       if (typeof unsubscribeState === 'function') unsubscribeState()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pageshow', handlePageShow)
     }
 
     function finishWithError(error) {
@@ -162,6 +172,7 @@ export async function connectWalletConnect({ forceNewSession = false } = {}) {
     async function finishWithProvider(provider) {
       if (settled || connecting || !provider) return
       connecting = true
+      connectionTimer.stop()
 
       try {
         const wallet = await finishConnection(modal, provider)
@@ -173,9 +184,55 @@ export async function connectWalletConnect({ forceNewSession = false } = {}) {
       }
     }
 
+    function syncFromModal() {
+      const account = modal.getAccount?.('eip155')
+      const provider = modal.getWalletProvider?.()
+
+      if (provider) currentProvider = provider
+      if (account?.isConnected && account.address) {
+        connectedAddress = account.address
+      }
+
+      tryFinishConnection()
+    }
+
     function tryFinishConnection() {
       if (currentProvider && connectedAddress) {
         finishWithProvider(currentProvider)
+      }
+    }
+
+    function handleConnectionTimeout() {
+      syncFromModal()
+      if (settled || connecting) return
+
+      if (document.visibilityState === 'hidden') {
+        connectionTimer.resume({ withGrace: true })
+        return
+      }
+
+      finishWithError(
+        new Error('WalletConnect timed out. Return to Core and approve the connection.'),
+      )
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        if (modalWasOpened) walletHandoffSeen = true
+        connectionTimer.pause()
+        return
+      }
+
+      syncFromModal()
+      if (!settled && !connecting) {
+        connectionTimer.resume({ withGrace: true })
+      }
+    }
+
+    function handlePageShow() {
+      syncFromModal()
+      if (!settled && !connecting) {
+        connectionTimer.resume({ withGrace: true })
       }
     }
 
@@ -201,17 +258,21 @@ export async function connectWalletConnect({ forceNewSession = false } = {}) {
       window.setTimeout(() => {
         if (settled || connecting) return
 
-        const account = modal.getAccount?.('eip155')
-        const provider = modal.getWalletProvider?.()
-        if (account?.isConnected && account.address && provider) {
-          currentProvider = provider
-          connectedAddress = account.address
-          tryFinishConnection()
+        syncFromModal()
+        if (settled || connecting) return
+
+        if (document.visibilityState === 'hidden' || walletHandoffSeen) {
+          connectionTimer.resume({ withGrace: true })
         } else {
           finishWithError(new Error('Wallet connection was cancelled.'))
         }
-      }, 300)
+      }, 1_200)
     })
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pageshow', handlePageShow)
+    connectionTimer.resume()
+    syncFromModal()
 
     Promise.resolve(modal.open({ view: 'Connect', namespace: 'eip155' })).catch(
       finishWithError,
