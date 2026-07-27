@@ -1,6 +1,7 @@
 {
   "name": "web3-learning",
   "version": "0.0.0",
+  "description": "Gasless AVAX reward campaigns on Avalanche Fuji: scan, register, connect Core, claim test AVAX, and verify every transfer on-chain.",
   "private": true,
   "type": "module",
   "scripts": {

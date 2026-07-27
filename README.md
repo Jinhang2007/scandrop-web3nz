@@ -1,5 +1,7 @@
 # ScanDrop
 
+> Gasless AVAX reward campaigns on Avalanche Fuji: scan a QR code, register, connect Core, claim test AVAX, and verify every transfer on-chain.
+
 ScanDrop is a Web3NZ Hackathon prototype for turning QR-code scans into measurable, returning users with native AVAX rewards on Avalanche Fuji.
 
 > Scan once. Register. Connect a wallet. Claim test AVAX once.
